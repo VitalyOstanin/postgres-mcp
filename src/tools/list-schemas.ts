@@ -27,12 +27,11 @@ export function registerListSchemasTool(server: McpServer, client: PostgreSQLCli
       }
 
       try {
-        // Query to list all schemas (excluding system schemas)
+        // Query to list all schemas (excluding essential system schemas only)
         const schemas = await client.executeQuery<{ schema_name: string }>(
-          `SELECT schema_name 
-           FROM information_schema.schemata 
+          `SELECT schema_name
+           FROM information_schema.schemata
            WHERE schema_name NOT IN ('information_schema', 'pg_catalog', 'pg_toast')
-           AND schema_name NOT LIKE 'pg_%'
            ORDER BY schema_name`,
         );
 
