@@ -14,12 +14,8 @@
     "prepublishOnly": "npm run build"
   },
   "keywords": [
-    "mcp",
     "model-context-protocol",
-    "postgres",
-    "postgresql",
-    "database",
-    "sql"
+    "postgres"
   ],
   "author": "Vitaly Ostanin <vitaly.ostanin@mail.ru>",
   "license": "MIT",
@@ -63,8 +59,8 @@
     "@types/node": "^22.19.0",
     "@types/pg": "^8.11.12",
     "@types/yargs": "^17.0.34",
-    "@vitalyostanin/eslint-prefer-de-morgan-law": "^1.0.2",
     "eslint": "^9.37.0",
+    "eslint-config-flat-gitignore": "^2.1.0",
     "jest": "^29.7.0",
     "ts-jest": "^29.4.5",
     "typescript": "^5.6.2",

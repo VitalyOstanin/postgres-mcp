@@ -1,4 +1,4 @@
-import { Pool, type PoolConfig, Client } from 'pg';
+import { Pool, type PoolConfig } from 'pg';
 
 export class PostgreSQLClient {
   private static instance: PostgreSQLClient;
@@ -9,6 +9,8 @@ export class PostgreSQLClient {
   private disconnectReason: string | null = null;
   private connectionError: Error | null = null;
   private poolSize: number = 1;
+  private idleTimeoutMillis: number = 30000;
+  private connectionTimeoutMillis: number = 10000;
 
   private constructor() {}
 
@@ -29,7 +31,7 @@ export class PostgreSQLClient {
     return this.readonlyMode;
   }
 
-  async connect(readonlyMode: boolean = true, poolSize: number = 1): Promise<void> {
+  async connect(readonlyMode: boolean = true, poolSize: number = 1, idleTimeoutMillis: number = 30000, connectionTimeoutMillis: number = 10000): Promise<void> {
     // Only use connection string from environment variable
     const connString = process.env['POSTGRES_MCP_CONNECTION_STRING'];
 
@@ -46,11 +48,15 @@ export class PostgreSQLClient {
       const poolConfig: PoolConfig = {
         connectionString: connString,
         max: poolSize,
+        idleTimeoutMillis,
+        connectionTimeoutMillis,
         // Additional pool configuration options can be added here
       };
 
       this.pool = new Pool(poolConfig);
       this.poolSize = poolSize;
+      this.idleTimeoutMillis = idleTimeoutMillis;
+      this.connectionTimeoutMillis = connectionTimeoutMillis;
 
       // Add event listeners to detect connection issues
       this.pool.on('error', (error) => {
@@ -64,6 +70,7 @@ export class PostgreSQLClient {
 
       // Test the connection
       const client = await this.pool.connect();
+
       await client.query('SELECT 1');
       client.release();
 
@@ -102,10 +109,23 @@ export class PostgreSQLClient {
     return this.pool!;
   }
 
-  async executeQuery<T>(query: string, params?: any[]): Promise<T[]> {
+  getPoolSize(): number {
+    return this.poolSize;
+  }
+
+  getIdleTimeoutMillis(): number {
+    return this.idleTimeoutMillis;
+  }
+
+  getConnectionTimeoutMillis(): number {
+    return this.connectionTimeoutMillis;
+  }
+
+  async executeQuery<T>(query: string, params?: Array<string | number | boolean | Date | null>): Promise<T[]> {
     this.ensureConnected();
 
     const client = await this.pool!.connect();
+
     try {
       // In readonly mode, run the query inside a readonly transaction
       // PostgreSQL's READ ONLY transaction mode prevents data-modifying operations
@@ -115,14 +135,18 @@ export class PostgreSQLClient {
         // Set transaction as readonly - this ensures no data modification is allowed
         // within this transaction (INSERT, UPDATE, DELETE, CREATE, ALTER, DROP, etc.)
         await client.query('SET TRANSACTION READ ONLY');
+
         // Execute the query
         const result = await client.query(query, params);
+
         // End transaction
         await client.query('COMMIT');
+
         return result.rows as T[];
       } else {
         // Execute the query directly in read-write mode
         const result = await client.query(query, params);
+
         return result.rows as T[];
       }
     } finally {

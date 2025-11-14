@@ -5,30 +5,18 @@ import { loadConfig } from "./config.js";
 import { initializeTimezone } from "./utils/date.js";
 import { registerConnectTool } from "./tools/connect.js";
 import { registerDisconnectTool } from "./tools/disconnect.js";
-import { registerListDatabasesTool } from "./tools/list-databases.js";
 import { registerListSchemasTool } from "./tools/list-schemas.js";
-import { registerListTablesTool } from "./tools/list-tables.js";
-import { registerListColumnsTool } from "./tools/list-columns.js";
 import { registerServiceInfoTool } from "./tools/service-info.js";
-import { registerTableInfoTool } from "./tools/table-info.js";
-import { registerFindTool } from "./tools/find.js";
-import { registerSelectTool } from "./tools/select.js";
-import { registerCountTool } from "./tools/count.js";
-import { registerInsertTool } from "./tools/insert.js";
-import { registerUpdateTool } from "./tools/update.js";
-import { registerDeleteTool } from "./tools/delete.js";
-import { registerCreateTableTool } from "./tools/create-table.js";
-import { registerDropTableTool } from "./tools/drop-table.js";
-import { registerCreateIndexTool } from "./tools/create-index.js";
-import { registerDropIndexTool } from "./tools/drop-index.js";
-import { registerQueryTool } from "./tools/query.js";
-import { registerExplainTool } from "./tools/explain.js";
+import { registerExecuteSQLTool } from "./tools/execute-sql.js";
+import { registerListObjectsTool } from "./tools/list-objects.js";
+import { registerShowObjectTool } from "./tools/show-object.js";
+import { registerIndexOperationTool } from "./tools/index-operation.js";
 
 export class PostgreSQLServer {
   private readonly server: McpServer;
   private readonly postgresClient: PostgreSQLClient;
 
-  constructor(autoConnect: boolean = false, readonlyMode: boolean = true, poolSize: number = 1) {
+  constructor(autoConnect: boolean = false, readonlyMode: boolean = true, poolSize: number = 1, idleTimeout: number = 30000, connectionTimeout: number = 10000) {
     this.server = new McpServer(
       {
         name: "postgres-mcp",
@@ -56,23 +44,11 @@ export class PostgreSQLServer {
     // Import and register the connect tool
     registerConnectTool(this.server, this.postgresClient);
     registerDisconnectTool(this.server, this.postgresClient);
-    registerListDatabasesTool(this.server, this.postgresClient);
     registerListSchemasTool(this.server, this.postgresClient);
-    registerListTablesTool(this.server, this.postgresClient);
-    registerListColumnsTool(this.server, this.postgresClient);
-    registerTableInfoTool(this.server, this.postgresClient);
-    registerFindTool(this.server, this.postgresClient);
-    registerSelectTool(this.server, this.postgresClient);
-    registerCountTool(this.server, this.postgresClient);
-    registerInsertTool(this.server, this.postgresClient);
-    registerUpdateTool(this.server, this.postgresClient);
-    registerDeleteTool(this.server, this.postgresClient);
-    registerCreateTableTool(this.server, this.postgresClient);
-    registerDropTableTool(this.server, this.postgresClient);
-    registerCreateIndexTool(this.server, this.postgresClient);
-    registerDropIndexTool(this.server, this.postgresClient);
-    registerQueryTool(this.server, this.postgresClient);
-    registerExplainTool(this.server, this.postgresClient);
+    registerExecuteSQLTool(this.server, this.postgresClient);
+    registerListObjectsTool(this.server, this.postgresClient);
+    registerShowObjectTool(this.server, this.postgresClient);
+    registerIndexOperationTool(this.server, this.postgresClient);
     registerServiceInfoTool(this.server, this.postgresClient);
 
     // If auto-connect option is enabled, connect to PostgreSQL on startup
@@ -81,7 +57,7 @@ export class PostgreSQLServer {
 
       if (connectionString) {
         // Connect in readonly mode if it's enabled
-        this.postgresClient.connect(readonlyMode, poolSize).catch(error => {
+        this.postgresClient.connect(readonlyMode, poolSize, idleTimeout, connectionTimeout).catch(error => {
           console.error("Failed to auto-connect to PostgreSQL:", error);
           // Set connection error state or emit event for proper error handling
           // Consider retrying connection or notifying the user

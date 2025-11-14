@@ -1,19 +1,103 @@
-import { defineConfig } from "eslint-config-flat-gitignore";
 import js from "@eslint/js";
-import typescriptEslint from "typescript-eslint";
+import tseslint from "typescript-eslint";
+import gitignore from "eslint-config-flat-gitignore";
 
-export default defineConfig(
+export default [
+  gitignore(),
   {
-    linterOptions: {
-      reportUnusedDisableDirectives: true,
-    },
+    ignores: ["dist/**", "node_modules/**", "coverage/**", "temp/**", "tmp/**"],
   },
   js.configs.recommended,
-  ...typescriptEslint.configs.recommended,
+  ...tseslint.configs.recommended,
   {
+    files: ["**/*.ts"],
+    languageOptions: {
+      parser: tseslint.parser,
+      parserOptions: {
+        project: "./tsconfig.eslint.json",
+        tsconfigRootDir: import.meta.dirname,
+        sourceType: "module",
+      },
+      globals: {
+        process: "readonly",
+        Buffer: "readonly",
+        console: "readonly",
+      },
+    },
+    plugins: {
+      "@typescript-eslint": tseslint.plugin,
+    },
     rules: {
-      "no-console": "warn",
-      "no-unused-vars": "off", // We'll rely on TypeScript for this
+      "eol-last": "error",
+      "no-trailing-spaces": "error",
+      "no-console": "off",
+      "no-debugger": "error",
+      "no-duplicate-imports": "error",
+      "no-var": "error",
+      "prefer-const": "error",
+      "prefer-template": "error",
+      "padding-line-between-statements": [
+        "error",
+        { blankLine: "always", prev: "*", next: "return" },
+        { blankLine: "always", prev: "*", next: ["const", "let", "var"] },
+        { blankLine: "always", prev: ["const", "let", "var"], next: "*" },
+        { blankLine: "never", prev: ["const", "let", "var"], next: ["const", "let", "var"] },
+      ],
+      "prefer-destructuring": [
+        "error",
+        {
+          VariableDeclarator: { array: false, object: true },
+          AssignmentExpression: { array: false, object: false },
+        },
+        { enforceForRenamedProperties: false },
+      ],
+      "object-shorthand": [
+        "error",
+        "always",
+        {
+          ignoreConstructors: false,
+          avoidQuotes: true,
+          avoidExplicitReturnArrows: true,
+        },
+      ],
+      "@typescript-eslint/prefer-optional-chain": "error",
+      "@typescript-eslint/prefer-nullish-coalescing": "error",
+      "no-extra-boolean-cast": "error",
+      "no-unneeded-ternary": "error",
+      "@typescript-eslint/prefer-includes": "error",
+      "@typescript-eslint/prefer-string-starts-ends-with": "error",
+      "@typescript-eslint/prefer-for-of": "error",
+      "@typescript-eslint/array-type": ["error", { default: "array-simple" }],
+      "@typescript-eslint/prefer-function-type": "error",
+      "@typescript-eslint/prefer-literal-enum-member": "error",
+      "@typescript-eslint/prefer-readonly": "error",
+      "@typescript-eslint/prefer-reduce-type-parameter": "error",
+      "@typescript-eslint/prefer-return-this-type": "error",
+      "@typescript-eslint/prefer-ts-expect-error": "error",
+      "@typescript-eslint/prefer-enum-initializers": "error",
+      "@typescript-eslint/consistent-type-definitions": ["error", "interface"],
+      "@typescript-eslint/consistent-type-imports": ["error", { prefer: "type-imports" }],
+      "@typescript-eslint/consistent-type-exports": "error",
+      "@typescript-eslint/method-signature-style": ["error", "property"],
+      "@typescript-eslint/no-confusing-void-expression": "error",
+      "@typescript-eslint/no-meaningless-void-operator": "error",
+      "@typescript-eslint/no-unnecessary-condition": "error",
+      "@typescript-eslint/no-unnecessary-type-assertion": "error",
+      "@typescript-eslint/switch-exhaustiveness-check": "error",
+      "prefer-object-spread": "error",
+      "prefer-arrow-callback": "error",
+      "prefer-rest-params": "error",
+      "prefer-spread": "error",
+      "comma-dangle": [
+        "error",
+        {
+          arrays: "always-multiline",
+          objects: "always-multiline",
+          imports: "always-multiline",
+          exports: "always-multiline",
+          functions: "always-multiline",
+        },
+      ],
       "@typescript-eslint/no-unused-vars": [
         "error",
         {
@@ -22,17 +106,6 @@ export default defineConfig(
           caughtErrorsIgnorePattern: "^_",
         },
       ],
-      "@typescript-eslint/no-explicit-any": "warn",
-      "@typescript-eslint/explicit-module-boundary-types": "warn",
-      "@typescript-eslint/no-non-null-assertion": "off",
-      "@typescript-eslint/no-empty-function": "warn",
     },
   },
-  {
-    files: ["**/*.test.ts", "**/*.spec.ts"],
-    rules: {
-      "@typescript-eslint/no-explicit-any": "off",
-      "@typescript-eslint/no-non-null-assertion": "off",
-    },
-  },
-);
+];

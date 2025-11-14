@@ -10,7 +10,7 @@ export type ListSchemasParams = z.infer<typeof listSchemasSchema>;
 
 // Export the registration function for the server
 // The client parameter is required to match the registration function signature used by other tools
-export function registerListSchemasTool(server: McpServer, client: PostgreSQLClient) {
+export function registerListSchemasTool(server: McpServer, client: PostgreSQLClient): void {
   server.registerTool(
     'list-schemas',
     {
@@ -21,7 +21,7 @@ export function registerListSchemasTool(server: McpServer, client: PostgreSQLCli
         readOnlyHint: true,
       },
     },
-    async () => {
+    async (_params, _extra) => {
       if (!client.isConnectedToPostgreSQL()) {
         return toolError(new Error('Not connected to PostgreSQL. Please connect first.'));
       }
@@ -33,7 +33,7 @@ export function registerListSchemasTool(server: McpServer, client: PostgreSQLCli
            FROM information_schema.schemata 
            WHERE schema_name NOT IN ('information_schema', 'pg_catalog', 'pg_toast')
            AND schema_name NOT LIKE 'pg_%'
-           ORDER BY schema_name`
+           ORDER BY schema_name`,
         );
 
         return toolSuccess({

@@ -12,7 +12,7 @@ export type ServiceInfoParams = z.infer<typeof serviceInfoSchema>;
 
 // Export the registration function for the server
 // The client parameter is required to match the registration function signature used by other tools
-export function registerServiceInfoTool(server: McpServer, client: PostgreSQLClient) {
+export function registerServiceInfoTool(server: McpServer, client: PostgreSQLClient): void {
   server.registerTool(
     'service_info',
     {
@@ -23,7 +23,7 @@ export function registerServiceInfoTool(server: McpServer, client: PostgreSQLCli
         readOnlyHint: true,
       },
     },
-    async () => {
+    async (_params, _extra) => {
       const connectionInfo = client.getConnectionInfo();
       const baseResponse = {
         name: 'postgres-mcp',
@@ -42,7 +42,12 @@ export function registerServiceInfoTool(server: McpServer, client: PostgreSQLCli
           ...(connectionInfo.connectionError && { connectionError: connectionInfo.connectionError }),
         };
       } else {
-        finalResponse = baseResponse;
+        finalResponse = {
+          ...baseResponse,
+          poolSize: client.getPoolSize(),
+          idleTimeoutMillis: client.getIdleTimeoutMillis(),
+          connectionTimeoutMillis: client.getConnectionTimeoutMillis(),
+        };
       }
 
       return toolSuccess(finalResponse);

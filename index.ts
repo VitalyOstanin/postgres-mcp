@@ -22,11 +22,23 @@ async function main() {
       description: 'Connection pool size',
       default: 1,
     })
+    .option('idle-timeout', {
+      type: 'number',
+      description: 'Idle timeout in milliseconds',
+      default: 30000, // 30 seconds
+    })
+    .option('connection-timeout', {
+      type: 'number',
+      description: 'Connection timeout in milliseconds',
+      default: 10000, // 10 seconds
+    })
     .parseAsync();
   const readOnlyMode = argv['read-only'];
   const poolSize = argv['pool-size'];
+  const idleTimeout = argv['idle-timeout'];
+  const connectionTimeout = argv['connection-timeout'];
   const transport = new StdioServerTransport();
-  const server = new PostgreSQLServer(argv['auto-connect'], readOnlyMode, poolSize);
+  const server = new PostgreSQLServer(argv['auto-connect'], readOnlyMode, poolSize, idleTimeout, connectionTimeout);
 
   await server.connect(transport);
 }

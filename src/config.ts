@@ -41,7 +41,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): PostgreSQLConf
   };
 }
 
-export function enrichConfigWithRedaction(config: PostgreSQLConfig) {
+export function enrichConfigWithRedaction(config: PostgreSQLConfig): Omit<PostgreSQLConfig, 'connectionString'> {
   return {
     timezone: config.timezone,
     poolSize: config.poolSize,
