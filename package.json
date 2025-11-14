@@ -1,0 +1,74 @@
+{
+  "name": "@vitalyostanin/postgres-mcp",
+  "version": "0.1.0",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "postbuild": "chmod +x dist/index.js",
+    "dev": "tsc -p tsconfig.json --watch",
+    "start": "node dist/index.js",
+    "dev:watch": "tsc -p tsconfig.json --watch",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "postgres",
+    "postgresql",
+    "database",
+    "sql"
+  ],
+  "author": "Vitaly Ostanin <vitaly.ostanin@mail.ru>",
+  "license": "MIT",
+  "description": "MCP server for comprehensive PostgreSQL integration: database operations, tables, queries, connection management, monitoring",
+  "type": "module",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "bin": {
+    "postgres-mcp": "dist/index.js"
+  },
+  "homepage": "https://github.com/VitalyOstanin/postgres-mcp#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/VitalyOstanin/postgres-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/VitalyOstanin/postgres-mcp/issues"
+  },
+  "files": [
+    "dist/**/*.js",
+    "dist/**/*.d.ts",
+    "dist/**/*.json",
+    "README.md",
+    "README-ru.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.21.1",
+    "luxon": "^3.5.0",
+    "pg": "^8.13.0",
+    "yargs": "^18.0.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.37.0",
+    "@types/jest": "^29.5.14",
+    "@types/luxon": "^3.7.1",
+    "@types/node": "^22.19.0",
+    "@types/pg": "^8.11.12",
+    "@types/yargs": "^17.0.34",
+    "@vitalyostanin/eslint-prefer-de-morgan-law": "^1.0.2",
+    "eslint": "^9.37.0",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.4.5",
+    "typescript": "^5.6.2",
+    "typescript-eslint": "^8.46.0",
+    "zod-to-json-schema": "^3.24.6"
+  }
+}
