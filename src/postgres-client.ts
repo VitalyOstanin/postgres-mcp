@@ -162,7 +162,6 @@ export class PostgreSQLClient {
     query: string,
     params?: Array<string | number | boolean | Date | null>,
     onRow?: (row: Record<string, unknown>) => void | Promise<void>,
-    _batchSize?: number, // Note: pg-query-stream doesn't use explicit batch size
   ): Promise<void> {
     if (!onRow) {
       throw new Error('onRow callback is required');

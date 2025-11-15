@@ -17,7 +17,7 @@ export class JsonLinesTransform extends Transform {
   override _transform(chunk: Record<string, unknown>, _encoding: string, callback: TransformCallback): void {
     try {
       // Convert the chunk to a JSON line
-      const jsonLine = `${JSON.stringify(chunk)  }\n`;
+      const jsonLine = `${JSON.stringify(chunk)}\n`;
 
       callback(null, jsonLine);
     } catch (error) {

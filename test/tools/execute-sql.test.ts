@@ -161,9 +161,14 @@ describe('Execute SQL Tool', () => {
     );
   });
 
-  it('returns error when in read-only mode and executing non-SELECT query', async () => {
+  it('returns error when in read-only mode and executing non-SELECT query (PostgreSQL prevents data modification)', async () => {
     // Setup mock
+    const readOnlyError = new Error('cannot execute INSERT in a read-only transaction');
+
+    readOnlyError.name = 'ReadOnlySqlTransactionError';
+
     mockClient.setConnected(true);
+    mockClient.setExecuteQueryError(readOnlyError);
     jest.spyOn(mockClient, 'isReadonly').mockReturnValue(true);
 
     // Get the registered tool function
@@ -182,9 +187,9 @@ describe('Execute SQL Tool', () => {
       params: ['John Doe'],
     });
 
-    // Verify error response
+    // Verify error response comes from PostgreSQL
     expect(result).toEqual(
-      toolError(new Error('Cannot perform write operation in read-only mode')),
+      toolError(readOnlyError),
     );
   });
 

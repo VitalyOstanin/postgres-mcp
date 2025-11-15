@@ -1,7 +1,7 @@
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { ZodError } from "zod";
 
-export function toolSuccess<T>(payload: T): CallToolResult {
+export function toolSuccess<T = unknown>(payload: T): CallToolResult {
   const base = { success: true, payload } as const;
 
   return {

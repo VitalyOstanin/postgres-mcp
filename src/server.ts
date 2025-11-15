@@ -59,9 +59,9 @@ export class PostgreSQLServer {
         // Connect in readonly mode if it's enabled
         this.postgresClient.connect(readonlyMode, poolSize, idleTimeout, connectionTimeout).catch(error => {
           console.error("Failed to auto-connect to PostgreSQL:", error);
-          // Set connection error state or emit event for proper error handling
-          // Consider retrying connection or notifying the user
-          process.exitCode = 1;
+          // Terminate server due to connection failure
+          console.error("Terminating server due to connection failure");
+          process.exit(1);
         });
       }
     }

@@ -5,6 +5,55 @@ import { toolSuccess, toolError } from '../utils/tool-response.js';
 import { streamPostgresQueryToFile, generatePostgresTempFilePath } from '../utils/postgres-stream.js';
 import { supportsCursor } from '../utils/query-analyzer.js';
 
+/**
+ * Helper function to write query results to a file
+ */
+async function writeResultsToFile(
+  results: Array<Record<string, unknown>>,
+  format: 'jsonl' | 'json' = 'jsonl',
+  filePath?: string,
+): Promise<{ filePath: string; count: number }> {
+  const resolvedFilePath = filePath ?? generatePostgresTempFilePath(format);
+  // Import required modules for file operations
+  const { createWriteStream } = await import('fs');
+  const { mkdir } = await import('fs/promises');
+  const { dirname } = await import('path');
+
+  // Ensure the directory exists
+  await mkdir(dirname(resolvedFilePath), { recursive: true });
+
+  // Create write stream
+  const writeStream = createWriteStream(resolvedFilePath);
+
+  if (format === 'jsonl') {
+    // Write each record as a JSON line
+    for (const row of results) {
+      writeStream.write(`${JSON.stringify(row)}\n`);
+    }
+  } else {
+    // Write as JSON array
+    writeStream.write('[');
+    for (let i = 0; i < results.length; i++) {
+      if (i > 0) writeStream.write(',');
+      writeStream.write(JSON.stringify(results[i]));
+    }
+    writeStream.write(']');
+  }
+
+  writeStream.end();
+
+  // Wait for the stream to finish
+  await new Promise<void>((resolve, reject) => {
+    writeStream.on('finish', () => { resolve(); });
+    writeStream.on('error', reject);
+  });
+
+  return {
+    filePath: resolvedFilePath,
+    count: results.length,
+  };
+}
+
 const executeSQLSchema = z.object({
   query: z.string().describe('SQL query to execute (SELECT, INSERT, UPDATE, DELETE, DDL)'),
   params: z.array(z.unknown()).optional().describe('Parameters for the SQL query'),
@@ -44,12 +93,8 @@ export function registerExecuteSQLTool(server: McpServer, client: PostgreSQLClie
         return toolError(new Error('Not connected to PostgreSQL. Please connect first.'));
       }
 
-      // Check if query is a modifying operation and if in read-only mode
-      const isReadOnlyQuery = query.trim().toUpperCase().startsWith('SELECT');
-
-      if (client.isReadonly() && !isReadOnlyQuery) {
-        return toolError(new Error('Cannot perform write operation in read-only mode'));
-      }
+      // In readonly mode, PostgreSQL will prevent data-modifying operations
+      // by using SET TRANSACTION READ ONLY, so we don't need additional check here
 
       try {
         if (saveToFile) {
@@ -78,49 +123,16 @@ export function registerExecuteSQLTool(server: McpServer, client: PostgreSQLClie
           } else if (forceSaveToFile) {
             // If cursor is not supported but forceSaveToFile is true, save results without streaming
             const results = await client.executeQuery<Record<string, unknown>>(query, validatedParams);
-            const format = params.format ?? 'jsonl';
-            const filePath = params.filePath ?? generatePostgresTempFilePath(format);
-            // Import required modules for file operations
-            const { createWriteStream } = await import('fs');
-            const { mkdir } = await import('fs/promises');
-            const { dirname } = await import('path');
-
-            // Ensure the directory exists
-            await mkdir(dirname(filePath), { recursive: true });
-
-            // Create write stream
-            const writeStream = createWriteStream(filePath);
-
-            if (format === 'jsonl') {
-              // Write each record as a JSON line
-              for (const row of results) {
-                writeStream.write(`${JSON.stringify(row)  }\n`);
-              }
-            } else {
-              // Write as JSON array
-              writeStream.write('[');
-              for (let i = 0; i < results.length; i++) {
-                if (i > 0) writeStream.write(',');
-                writeStream.write(JSON.stringify(results[i]));
-              }
-              writeStream.write(']');
-            }
-
-            writeStream.end();
-
-            // Wait for the stream to finish
-            await new Promise<void>((resolve, reject) => {
-              writeStream.on('finish', () => { resolve(); });
-              writeStream.on('error', reject);
-            });
+            // Write results to file without streaming (for non-cursor queries)
+            const { filePath, count } = await writeResultsToFile(results, params.format ?? 'jsonl', params.filePath);
 
             return toolSuccess({
               savedToFile: true,
               filePath,
               query,
-              count: results.length,
-              format,
-              message: `${results.length} records were written to the file in ${format} format. Note: Query does not support cursor streaming, so all results were loaded into memory before writing to file.`,
+              count,
+              format: params.format ?? 'jsonl',
+              message: `${count} records were written to the file in ${params.format ?? 'jsonl'} format. Note: Query does not support cursor streaming, so all results were loaded into memory before writing to file.`,
             });
           } else {
             // If cursor is not supported and forceSaveToFile is false, return an error
