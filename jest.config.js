@@ -19,7 +19,10 @@ export default {
       'ts-jest',
       {
         useESM: true,
+        tsconfig: 'tsconfig.test.json',
       },
     ],
   },
+  // Handle WASM files properly
+  testPathIgnorePatterns: ['/node_modules/', '/dist/'],
 };

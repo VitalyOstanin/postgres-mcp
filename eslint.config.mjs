@@ -10,7 +10,7 @@ export default [
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    files: ["**/*.ts"],
+    files: ["**/*.ts", "**/*.mts"],
     languageOptions: {
       parser: tseslint.parser,
       parserOptions: {
@@ -106,6 +106,12 @@ export default [
           caughtErrorsIgnorePattern: "^_",
         },
       ],
+    },
+  },
+  {
+    files: ["test/**/*.ts", "test/**/*.mts", "**/*.test.ts", "**/*.spec.ts"],
+    rules: {
+      "@typescript-eslint/consistent-type-imports": ["error", { prefer: "type-imports", disallowTypeAnnotations: false }],
     },
   },
 ];

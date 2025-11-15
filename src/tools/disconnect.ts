@@ -15,7 +15,7 @@ export function registerDisconnectTool(server: McpServer, client: PostgreSQLClie
     'disconnect',
     {
       title: 'Disconnect from PostgreSQL',
-      description: 'Disconnect from PostgreSQL and clear the connection. Use service_info to check connection status after disconnecting.',
+      description: 'Disconnect from PostgreSQL and clear the connection. Use service-info to check connection status after disconnecting.',
       inputSchema: disconnectSchema.shape,
       annotations: {
         readOnlyHint: true,

@@ -37,13 +37,13 @@ describe('ServiceInfo Tool', () => {
     mockClient = getMockClient();
   });
 
-  it('registers the service_info tool correctly', () => {
+  it('registers the service-info tool correctly', () => {
     // Call the registration function
     registerServiceInfoTool(mockServer as unknown as McpServer, mockClient);
 
     // Verify that registerTool was called with correct parameters
     expect(mockServer.registerTool).toHaveBeenCalledWith(
-      'service_info',
+      'service-info',
       expect.objectContaining({
         title: 'Service Information',
         description: expect.stringContaining('Get PostgreSQL service information'),

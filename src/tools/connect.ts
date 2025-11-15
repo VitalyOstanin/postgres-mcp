@@ -19,7 +19,7 @@ export function registerConnectTool(server: McpServer, _client: PostgreSQLClient
     'connect',
     {
       title: 'Connect to PostgreSQL',
-      description: 'Establish connection to PostgreSQL using connection string from environment variable POSTGRES_MCP_CONNECTION_STRING. Call service_info first to check current connection status.',
+      description: 'Establish connection to PostgreSQL using connection string from environment variable POSTGRES_MCP_CONNECTION_STRING. Call service-info first to check current connection status.',
       inputSchema: connectSchema.shape,
       annotations: {
         readOnlyHint: true,

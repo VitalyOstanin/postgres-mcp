@@ -1,4 +1,5 @@
 import { Pool, type PoolConfig } from 'pg';
+import QueryStream from 'pg-query-stream';
 
 export class PostgreSQLClient {
   private static instance: PostgreSQLClient;
@@ -148,6 +149,89 @@ export class PostgreSQLClient {
         const result = await client.query(query, params);
 
         return result.rows as T[];
+      }
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * Stream query results using pg-query-stream to avoid memory accumulation
+   */
+  async streamQuery(
+    query: string,
+    params?: Array<string | number | boolean | Date | null>,
+    onRow?: (row: Record<string, unknown>) => void | Promise<void>,
+    _batchSize?: number, // Note: pg-query-stream doesn't use explicit batch size
+  ): Promise<void> {
+    if (!onRow) {
+      throw new Error('onRow callback is required');
+    }
+    this.ensureConnected();
+
+    const client = await this.pool!.connect();
+
+    try {
+      if (this.readonlyMode) {
+        // Begin transaction
+        await client.query('BEGIN');
+        // Set transaction as readonly
+        await client.query('SET TRANSACTION READ ONLY');
+
+        // Create a query stream
+        const queryStream = new QueryStream(query, params ?? []);
+        // Create a promise to handle the completion of the stream
+        const streamPromise = new Promise<void>((resolve, reject) => {
+          const stream = client.query(queryStream);
+
+          stream.on('data', async (row: Record<string, unknown>) => {
+            try {
+              await onRow(row);
+            } catch (error) {
+              reject(error);
+              stream.destroy(); // Stop the stream on error
+            }
+          });
+
+          stream.on('end', () => {
+            resolve();
+          });
+
+          stream.on('error', (error) => {
+            reject(error);
+          });
+        });
+
+        await streamPromise;
+
+        // End transaction
+        await client.query('COMMIT');
+      } else {
+        // Create a query stream in read-write mode
+        const queryStream = new QueryStream(query, params ?? []);
+        // Create a promise to handle the completion of the stream
+        const streamPromise = new Promise<void>((resolve, reject) => {
+          const stream = client.query(queryStream);
+
+          stream.on('data', async (row: Record<string, unknown>) => {
+            try {
+              await onRow(row);
+            } catch (error) {
+              reject(error);
+              stream.destroy(); // Stop the stream on error
+            }
+          });
+
+          stream.on('end', () => {
+            resolve();
+          });
+
+          stream.on('error', (error) => {
+            reject(error);
+          });
+        });
+
+        await streamPromise;
       }
     } finally {
       client.release();

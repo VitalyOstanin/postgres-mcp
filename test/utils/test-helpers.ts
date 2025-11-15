@@ -1,14 +1,14 @@
 import { MockPostgreSQLClientInstance } from '../__mocks__/postgres-client.mock.js';
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+
+export interface MockServer {
+  registerTool: jest.Mock;
+}
 
 // Helper function to create a mock server
-export function createMockServer(): jest.Mocked<McpServer> {
+export function createMockServer(): MockServer {
   return {
     registerTool: jest.fn(),
-    connect: jest.fn(),
-    disconnect: jest.fn(),
-    close: jest.fn(),
-  } as unknown as jest.Mocked<McpServer>;
+  };
 }
 
 // Helper function to get the mock client instance
