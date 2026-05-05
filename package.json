@@ -26,8 +26,10 @@
   "description": "MCP server for comprehensive PostgreSQL integration: database operations, tables, queries, connection management, monitoring",
   "type": "module",
   "engines": {
-    "node": ">=22.0.0"
+    "node": ">=22.0.0",
+    "npm": ">=10.0.0"
   },
+  "packageManager": "npm@11.9.0",
   "bin": {
     "postgres-mcp": "dist/index.js"
   },

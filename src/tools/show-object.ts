@@ -31,6 +31,7 @@ interface FunctionInfo {
   schema: string;
   definition: string;
   arguments: string;
+  identity_arguments: string;
   return_type: string;
 }
 
@@ -48,13 +49,18 @@ interface TableWithColumns {
   }>;
 }
 
-interface FunctionWithDefinition {
-  name: string;
-  schema: string;
-  type: string;
+interface FunctionOverload {
   arguments: string;
+  identityArguments: string;
   returnType: string;
   definition: string;
+}
+
+interface FunctionWithOverloads {
+  name: string;
+  schema: string;
+  type: 'function';
+  overloads: FunctionOverload[];
 }
 
 export function registerShowObjectTool(server: McpServer, client: PostgreSQLClient): void {
@@ -65,8 +71,8 @@ export function registerShowObjectTool(server: McpServer, client: PostgreSQLClie
       description: [
         'Show detailed information about a PostgreSQL object (table, view, or function).',
         'Use for: inspecting columns, data types, defaults, nullability of a table or view; reading the full source definition of a function.',
-        'Returns (table/view): `{ name, type, columns: [{ name, type, nullable, default, maxLength, precision, scale }] }`. Returns (function): `{ name, schema, type, arguments, returnType, definition }`.',
-        'Limitations: when multiple functions share the same name (overloading), only the first match is returned. Function definitions can include credentials embedded in SECURITY DEFINER bodies — consider that before sharing the output.',
+        'Returns (table/view): `{ name, type, columns: [{ name, type, nullable, default, maxLength, precision, scale }] }`. Returns (function): `{ name, schema, type, overloads: [{ arguments, identityArguments, returnType, definition }] }` — every overload sharing the name is included; `identityArguments` uniquely identifies an overload (use it with `DROP FUNCTION schema.name(identityArguments)`).',
+        'Limitations: function definitions can include credentials embedded in SECURITY DEFINER bodies — consider that before sharing the output.',
       ].join(' '),
       inputSchema: showObjectSchema.shape,
       annotations: {
@@ -81,7 +87,7 @@ export function registerShowObjectTool(server: McpServer, client: PostgreSQLClie
       }
 
       try {
-        let result: TableWithColumns | FunctionWithDefinition | null = null;
+        let result: TableWithColumns | FunctionWithOverloads | null = null;
 
         switch (type) {
           case 'table':
@@ -133,29 +139,42 @@ export function registerShowObjectTool(server: McpServer, client: PostgreSQLClie
           }
 
           case 'function': {
+            // Return every overload sharing this name. `identity_arguments`
+            // gives the unambiguous form (without parameter names, modes, or
+            // defaults) that DROP FUNCTION expects. Restrict to functions
+            // and procedures (`prokind IN ('f', 'p')`); aggregates and
+            // window functions can be added later if needed.
             const functionQuery = `
               SELECT
                 p.proname as name,
                 n.nspname as schema,
                 pg_get_functiondef(p.oid) as definition,
                 pg_get_function_arguments(p.oid) as arguments,
+                pg_get_function_identity_arguments(p.oid) as identity_arguments,
                 t.typname as return_type
               FROM pg_proc p
               JOIN pg_namespace n ON p.pronamespace = n.oid
               JOIN pg_type t ON p.prorettype = t.oid
               WHERE n.nspname = $1 AND p.proname = $2
+                AND p.prokind IN ('f', 'p')
+              ORDER BY pg_get_function_identity_arguments(p.oid)
             `;
             const resultArray = await client.executeQuery<FunctionInfo>(functionQuery, [schema, name]);
-            const func = resultArray[0];
 
-            if (func) {
+            if (resultArray.length > 0) {
+              const first = resultArray[0];
+
+              if (!first) break;
               result = {
-                name: func.name,
-                schema: func.schema,
+                name: first.name,
+                schema: first.schema,
                 type: 'function',
-                arguments: func.arguments,
-                returnType: func.return_type,
-                definition: func.definition,
+                overloads: resultArray.map(row => ({
+                  arguments: row.arguments,
+                  identityArguments: row.identity_arguments,
+                  returnType: row.return_type,
+                  definition: row.definition,
+                })),
               };
             }
             break;

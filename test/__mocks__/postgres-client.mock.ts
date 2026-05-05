@@ -1,4 +1,5 @@
 import { vi } from 'vitest';
+import type { PostgreSQLClient } from '../../src/postgres-client.js';
 
 class MockPostgreSQLClientClass {
   private executeQueryResult: Array<Record<string, unknown>> = [];
@@ -125,6 +126,32 @@ class MockPostgreSQLClientClass {
     return this.mockConnectionTimeoutMillis;
   });
 }
+
+// Compile-time assertion: the mock must satisfy the public surface of the
+// real PostgreSQLClient. If a public method is renamed, removed, or has
+// its signature changed in src/postgres-client.ts, this line fails to
+// typecheck and the mock must be updated. Using `Pick` (not a bare
+// assignment) so that mock-only test helpers like `setConnected` /
+// `setExecuteQueryResult` don't have to exist on the real client.
+type RealPublicSurface = Pick<PostgreSQLClient,
+  | 'isReadonly'
+  | 'connect'
+  | 'disconnect'
+  | 'whenLifecycleSettled'
+  | 'getPool'
+  | 'getPoolSize'
+  | 'getIdleTimeoutMillis'
+  | 'getConnectionTimeoutMillis'
+  | 'executeQuery'
+  | 'streamQuery'
+  | 'isConnectedToPostgreSQL'
+  | 'getConnectionInfo'
+  | 'getConnectionString'
+>;
+
+const _mockSurfaceCheck: RealPublicSurface = new MockPostgreSQLClientClass();
+
+void _mockSurfaceCheck;
 
 // Export the class directly as the mock constructor.
 // vitest's `vi.fn().mockImplementation(() => new Class())` cannot be invoked

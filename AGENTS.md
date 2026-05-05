@@ -72,6 +72,11 @@
 - Keep documentation (`README*`, `TODO*`, ru variants when available) aligned with the current Postgres feature set after each iteration.
 - When adding or modifying environment variables, update `README.md` and `README-ru.md` so setup instructions stay accurate.
 
+## Testing Credentials — Important
+- `test/setup.ts` and `test-integration/setup.ts` use a hard-coded `test:test` PostgreSQL DSN. These credentials exist **only** to talk to the local container defined in [`compose.yaml`](compose.yaml), which binds the database to `127.0.0.1:55432` (not `0.0.0.0`).
+- **Never use `test:test` against any non-test PostgreSQL instance.** Real environments must always use `POSTGRES_MCP_CONNECTION_STRING` set to a credential pulled from a secret manager.
+- If you need to run integration tests against a different database, set `POSTGRES_MCP_CONNECTION_STRING` in the shell *before* running `npm run test:integration` — the test setup falls back to the hardcoded value only when the env var is empty.
+
 ## Git Commands
 - **CRITICAL: Always use `--no-pager` flag with git commands** to prevent interactive pager (less/more) from blocking terminal output.
 - This is especially important for commands like `git log`, `git show`, `git diff`, `git tag`, etc.

@@ -43,14 +43,47 @@ async function main() {
   });
   // Wire graceful shutdown: close the pool when the host sends SIGINT/SIGTERM
   // so PostgreSQL does not see abrupt connection drops on shutdown.
+  //
+  // Critical detail: a signal can arrive *during* startup (e.g. while
+  // `server.init()` is still authenticating to PostgreSQL). If we naively
+  // call `process.exit(0)` from the signal handler, we would tear the
+  // process down while `init()` is mid-flight, leaking the half-opened
+  // pool and serving an abrupt TCP reset to the database.
+  //
+  // Instead, we keep a reference to the startup promise and:
+  //   1. Set `shuttingDown` so the startup path can skip
+  //      `transport.connect` once it returns (we don't want the MCP host
+  //      to think we're alive after the operator already asked us to stop).
+  //   2. Await the startup promise from the shutdown handler before calling
+  //      `server.shutdown()`, so the pool is fully created (and therefore
+  //      cleanly closable) by the time we tear it down.
   let shuttingDown = false;
+  const startup = (async (): Promise<void> => {
+    await server.init();
+
+    // ESLint can't see that `shuttingDown` is mutated by the SIGINT/SIGTERM
+    // handler during the `await` above. The check is intentional.
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+    if (shuttingDown) {
+      // The operator asked us to stop while we were still initialising;
+      // don't attach the MCP transport — the shutdown path will close the
+      // pool that init() just created.
+      return;
+    }
+    await server.connect(transport);
+  })();
   const shutdown = (signal: string): void => {
     if (shuttingDown) {
       return;
     }
     shuttingDown = true;
     console.error(`Received ${signal}, shutting down PostgreSQL MCP server...`);
-    server.shutdown()
+    // Wait for any in-flight startup to settle (success or failure) before
+    // tearing down — otherwise we'd race against init() finishing and
+    // leak its pool.
+    startup
+      .catch(() => { /* startup failure surfaces in the main awaiter below */ })
+      .then(() => server.shutdown())
       .then(() => { process.exit(0); })
       .catch((error: unknown) => {
         console.error('Error during shutdown:', error);
@@ -61,10 +94,7 @@ async function main() {
   process.on('SIGINT', () => { shutdown('SIGINT'); });
   process.on('SIGTERM', () => { shutdown('SIGTERM'); });
 
-  // Run auto-connect (if requested) BEFORE wiring up the MCP transport so the
-  // first tool call doesn't race with database initialisation.
-  await server.init();
-  await server.connect(transport);
+  await startup;
 }
 
 main().catch((error) => {

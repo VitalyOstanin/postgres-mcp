@@ -79,7 +79,7 @@ describe('Connect Tool', () => {
     let toolFunction: any;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    mockServer.registerTool = vi.fn().mockImplementation((name: unknown, config: unknown, func: any) => {
+    mockServer.registerTool = vi.fn().mockImplementation((_name: unknown, _config: unknown, func: any) => {
       toolFunction = func;
     });
 
@@ -119,7 +119,7 @@ describe('Connect Tool', () => {
     let toolFunction: any;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    mockServer.registerTool = vi.fn().mockImplementation((name: unknown, config: unknown, func: any) => {
+    mockServer.registerTool = vi.fn().mockImplementation((_name: unknown, _config: unknown, func: any) => {
       toolFunction = func;
     });
 
@@ -151,7 +151,7 @@ describe('Connect Tool', () => {
     let toolFunction: any;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    mockServer.registerTool = vi.fn().mockImplementation((name: unknown, config: unknown, func: any) => {
+    mockServer.registerTool = vi.fn().mockImplementation((_name: unknown, _config: unknown, func: any) => {
       toolFunction = func;
     });
 
@@ -180,7 +180,7 @@ describe('Connect Tool', () => {
     let toolFunction: any;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    mockServer.registerTool = vi.fn().mockImplementation((name: unknown, config: unknown, func: any) => {
+    mockServer.registerTool = vi.fn().mockImplementation((_name: unknown, _config: unknown, func: any) => {
       toolFunction = func;
     });
 

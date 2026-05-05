@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { parse } from 'pgsql-parser';
 
 // Statements that obviously do not support cursor-based streaming.
@@ -15,9 +16,31 @@ const NON_CURSOR_FIRST_KEYWORDS = new Set([
 // Cap the cache so a long-running session that sees many distinct queries
 // cannot grow it without bound.
 const CURSOR_CACHE_LIMIT = 256;
+// Skip caching very large queries to avoid hashing megabyte-sized SQL on
+// every call — the cache hit-rate on multi-KB ad-hoc SQL is near zero anyway.
+const CACHE_QUERY_MAX_LENGTH = 4096;
 const cursorCache = new Map<string, boolean>();
 
-function rememberInCache(key: string, value: boolean): boolean {
+/**
+ * Build a short, fixed-size cache key from the query text. Storing the full
+ * SQL as the key would let a session that runs N distinct multi-KB queries
+ * pin up to ~CURSOR_CACHE_LIMIT * length(query) bytes of heap. The hash
+ * collision probability is negligible at sha1's 160 bits, and even on a
+ * collision both queries would map to the same boolean (cursor / not), so
+ * the worst case is a single mis-classification that the parser path would
+ * have caught anyway.
+ */
+function cacheKey(trimmed: string): string {
+  return createHash('sha1').update(trimmed).digest('hex');
+}
+
+function rememberInCache(query: string, value: boolean): boolean {
+  if (query.length > CACHE_QUERY_MAX_LENGTH) {
+    return value;
+  }
+
+  const key = cacheKey(query);
+
   if (cursorCache.size >= CURSOR_CACHE_LIMIT) {
     // Drop the oldest entry. Map iteration order is insertion order, so
     // shifting the first key works as a poor-man's LRU.
@@ -30,6 +53,14 @@ function rememberInCache(key: string, value: boolean): boolean {
   cursorCache.set(key, value);
 
   return value;
+}
+
+function readFromCache(query: string): boolean | undefined {
+  if (query.length > CACHE_QUERY_MAX_LENGTH) {
+    return undefined;
+  }
+
+  return cursorCache.get(cacheKey(query));
 }
 
 /**
@@ -101,7 +132,7 @@ export async function supportsCursor(query: string): Promise<boolean> {
     return false;
   }
 
-  const cached = cursorCache.get(trimmed);
+  const cached = readFromCache(trimmed);
 
   if (cached !== undefined) {
     return cached;

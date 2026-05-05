@@ -90,13 +90,21 @@ describe('show-object (integration)', () => {
     expect(columns.map(c => c.name)).toEqual(['id', 'customer', 'total']);
   });
 
-  it('returns definition for a function', async () => {
+  it('returns overloads for a function', async () => {
     const payload = readPayload(await invoke({ schema: SCHEMA, name: 'discount', type: 'function' }));
 
     expect(payload['type']).toBe('function');
     expect(payload['name']).toBe('discount');
-    expect(payload['definition']).toMatch(/CREATE OR REPLACE FUNCTION/);
-    expect(payload['arguments']).toMatch(/p numeric/);
+
+    const overloads = payload['overloads'] as Array<Record<string, unknown>>;
+
+    expect(overloads).toHaveLength(1);
+
+    const first = overloads[0]!;
+
+    expect(first['definition']).toMatch(/CREATE OR REPLACE FUNCTION/);
+    expect(first['arguments']).toMatch(/p numeric/);
+    expect(first['identityArguments']).toMatch(/numeric/);
   });
 
   it('returns isError when object is missing', async () => {

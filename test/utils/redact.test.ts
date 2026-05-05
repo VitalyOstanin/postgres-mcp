@@ -57,4 +57,12 @@ describe('redactConnectionString', () => {
     expect(redactConnectionString('reset_password_token=xyz uses=3'))
       .toBe('reset_password_token=xyz uses=3');
   });
+
+  it('redacts URL with %3A (URL-encoded colon) inside username', () => {
+    // RFC 3986 reserves `:` so a literal colon in a userinfo segment must be
+    // percent-encoded. The redactor should still pick the right `:` boundary
+    // (the one before the password) — `%3A` is three ASCII chars, not a `:`.
+    expect(redactConnectionString('postgres://user%3Aname:secret@host:5432/db'))
+      .toBe('postgres://user%3Aname:***@host:5432/db');
+  });
 });

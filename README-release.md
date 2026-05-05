@@ -7,6 +7,9 @@ This document outlines the complete release procedure for the PostgreSQL MCP pro
 - [Release Procedure](#release-procedure)
   - [Table of Contents](#table-of-contents)
   - [Overview](#overview)
+  - [Repository Hardening (one-time)](#repository-hardening-one-time)
+    - [Branch Protection on `master`](#branch-protection-on-master)
+    - [`npm-publish` Environment Gating](#npm-publish-environment-gating)
   - [Pre-Release Checklist](#pre-release-checklist)
     - [0. Environment Setup](#0-environment-setup)
     - [1. Version Update](#1-version-update)
@@ -50,6 +53,63 @@ git push --follow-tags        # Push to GitHub → triggers automated release
 ```
 
 For detailed instructions and prerequisites, continue reading below.
+
+## Repository Hardening (one-time)
+
+These settings live in the GitHub UI, not in the repo, so they have to be
+configured once by a repository administrator. They protect the release
+pipeline from accidental or unauthorized publishes.
+
+### Branch Protection on `master`
+
+Goal: every change that lands on `master` is reviewed and gated by CI, and
+no one (not even an admin) can push directly. Configure under **Settings →
+Branches → Branch protection rules** (classic rules) or **Settings → Rules
+→ Rulesets** (newer UI — equivalent settings).
+
+Required settings:
+
+- **Require a pull request before merging** — at least one review approval.
+  Enable **Dismiss stale pull request approvals when new commits are
+  pushed** so a force-pushed PR cannot ship under an old approval.
+- **Require status checks to pass before merging** — select these checks
+  (their names match the matrix in `.github/workflows/ci.yml`):
+  - `build-and-test (22.x)`
+  - `build-and-test (24.x)`
+  - `integration-tests (22.x)`
+  - `integration-tests (24.x)`
+  - `audit`
+- **Require branches to be up to date before merging** — prevents merging
+  a PR whose base has moved (and therefore whose CI run is stale).
+- **Require linear history** — disallows merge commits, keeps `master`
+  bisectable.
+- **Do not allow bypassing the above settings** (or, in classic rules,
+  enable **Include administrators**) — protections must apply uniformly.
+- **Restrict who can push to matching branches** — leave empty so only
+  PR merges modify `master`.
+- **Allow force pushes**: disabled.
+- **Allow deletions**: disabled.
+
+Optional but recommended:
+
+- **Require signed commits** — every merged commit must be GPG/SSH-signed.
+- **Require conversation resolution before merging** — outstanding review
+  threads block merge.
+
+### `npm-publish` Environment Gating
+
+The publish workflow gates `NPM_TOKEN` behind a GitHub Environment so a
+mere tag push cannot release. Configure under **Settings → Environments →
+npm-publish**:
+
+- **Deployment branches and tags**: restrict to tags matching `v*` (the
+  same pattern as `on.push.tags` in `.github/workflows/publish.yml`).
+- **Required reviewers**: at least one maintainer must approve the
+  workflow run before it proceeds to `npm publish`.
+- **Environment secrets**: store `NPM_TOKEN` here (not at repo level).
+
+After this, a release run pauses with `Awaiting approval` until a
+maintainer clicks `Review deployments → Approve and deploy`.
 
 ## Pre-Release Checklist
 
@@ -325,10 +385,11 @@ npm version major   # for 0.1.0 → 1.0.0 (breaking changes)
 git push --follow-tags
 
 # 3. GitHub Actions will automatically:
-#    ✓ Run CI tests (Node.js 20.x, 22.x)
-#    ✓ Build the project
-#    ✓ Publish to npm with provenance
-#    ✓ Create GitHub Release with installation instructions
+#    - Run CI tests (Node.js 22.x, 24.x — see ci.yml matrix)
+#    - Build the project
+#    - Smoke pack-and-install the tarball
+#    - Publish to npm with provenance
+#    - Create GitHub Release with installation instructions
 ```
 
 #### Monitor Release Progress
@@ -349,14 +410,16 @@ The automated workflow (`.github/workflows/publish.yml`) performs:
 
 1. **Environment Setup**
    - Checkout repository code
-   - Setup Node.js 20.x with npm cache
+   - Setup Node.js 22.x with npm cache
    - Install dependencies with `npm ci`
 
 2. **Build & Validation**
-   - Run tests with `npm test`
+   - Run lint, typecheck, and tests
    - Build project with `npm run build`
    - Verify package contents with `npm pack --dry-run`
-   - Ensure all required files are included
+   - Smoke pack-and-install: build a tarball, install it into a clean
+     throwaway project, run the bin entry with `--help` to catch broken
+     `files` allow-list, missing deps, or shebang issues
 
 3. **Publishing**
    - Publish to npm with `--provenance` flag (cryptographic signature)

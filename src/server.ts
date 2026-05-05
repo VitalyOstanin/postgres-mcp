@@ -4,6 +4,7 @@ import { PostgreSQLClient } from "./postgres-client.js";
 import { loadConfig } from "./config.js";
 import { initializeTimezone } from "./utils/date.js";
 import { redactConnectionString } from "./utils/redact.js";
+import { supportsCursor } from "./utils/query-analyzer.js";
 import { registerConnectTool } from "./tools/connect.js";
 import { registerDisconnectTool } from "./tools/disconnect.js";
 import { registerListSchemasTool } from "./tools/list-schemas.js";
@@ -77,6 +78,14 @@ export class PostgreSQLServer {
    * accepting tool calls against a half-initialised server.
    */
   async init(): Promise<void> {
+    // Warm up the pgsql-parser WASM module so the first execute-sql call
+    // with cursor analysis doesn't pay the ~20-100 ms cold-start cost on
+    // the user's first query. Cheap (parses `SELECT 1`) and fire-and-forget
+    // — failures here only mean the first parse takes longer, never an
+    // outright error, so we swallow them. Done before auto-connect so the
+    // module starts loading in parallel with the network handshake.
+    void supportsCursor('SELECT 1').catch(() => { /* warm-up only */ });
+
     if (!this.options.autoConnect) {
       return;
     }

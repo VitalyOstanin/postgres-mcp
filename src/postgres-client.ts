@@ -149,8 +149,18 @@ export class PostgreSQLClient {
 
   private ensureConnected(): Pool {
     if (!this.isConnected || !this.pool) {
-      this.connectionError ??= new Error('Not connected to PostgreSQL. Please connect first.');
-      throw this.connectionError;
+      // Always raise a fresh error so callers see "call connect again" on
+      // every attempt — caching `this.connectionError` and re-throwing it
+      // makes every subsequent tool call after a failed connect look like
+      // it failed for the same network reason, even after the database
+      // has come back up. The original cause is preserved in `Error.cause`
+      // for diagnostics.
+      const cause = this.connectionError;
+      const message = cause
+        ? `Not connected to PostgreSQL (last attempt failed: ${cause.message}). Call \`connect\` to retry.`
+        : 'Not connected to PostgreSQL. Please connect first.';
+
+      throw new Error(message, cause ? { cause } : undefined);
     }
 
     return this.pool;

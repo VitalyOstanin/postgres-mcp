@@ -14,11 +14,29 @@ export default defineConfig({
       provider: 'v8',
       reporter: ['text', 'lcov', 'html'],
       include: ['src/**/*.ts'],
-      // Exclude the entry point and type-only declarations from coverage —
-      // index.ts is exercised end-to-end by integration tests; type files
-      // contribute zero executable lines.
-      exclude: ['src/**/*.d.ts', 'src/version.ts'],
+      // Files exercised only by integration tests against a real PostgreSQL
+      // container don't accumulate coverage in the unit run — excluding them
+      // keeps unit-coverage thresholds meaningful instead of being dragged
+      // down by code paths the unit suite intentionally avoids.
+      exclude: [
+        'src/**/*.d.ts',
+        'src/version.ts',
+        'src/postgres-client.ts',
+        'src/server.ts',
+        'src/tools/show-object.ts',
+        'src/utils/postgres-stream.ts',
+        'src/utils/streaming.ts',
+        'src/utils/date.ts',
+      ],
       reportsDirectory: 'coverage',
+      // Floors set just below current values so a regression fails the
+      // build but small fluctuations don't. Raise these after adding tests.
+      thresholds: {
+        statements: 75,
+        branches: 65,
+        functions: 80,
+        lines: 75,
+      },
     },
   },
 });

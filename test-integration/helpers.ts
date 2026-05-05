@@ -1,12 +1,36 @@
 import { Pool } from 'pg';
 import { PostgreSQLClient } from '../src/postgres-client.js';
 
-const CONNECTION_STRING = 'postgresql://test:test@127.0.0.1:55432/test';
+// Single source of truth for the test DSN. `setup.ts` populates the env
+// var with a default that points at the compose.yaml container; reading
+// the same var here keeps the admin pool and the client-under-test on
+// the same database when a developer overrides the port (e.g. when the
+// container is published on a non-default port to avoid colliding with
+// a local PostgreSQL install).
+function getConnectionString(): string {
+  const dsn = process.env['POSTGRES_MCP_CONNECTION_STRING'];
+
+  if (!dsn) {
+    throw new Error(
+      'POSTGRES_MCP_CONNECTION_STRING is not set. test-integration/setup.ts should populate it; if you imported this module outside of vitest, set it manually.',
+    );
+  }
+
+  return dsn;
+}
+
 // Always-RW admin pool for setup/teardown SQL.
 let adminPool: Pool | null = null;
 
 export function getAdminPool(): Pool {
-  adminPool ??= new Pool({ connectionString: CONNECTION_STRING, max: 2 });
+  // `max: 2` is intentionally tight. `vitest.integration.config.ts` sets
+  // `fileParallelism: false` and `maxWorkers: 1`, so under normal runs
+  // only one query is in flight at a time — but if a future change ever
+  // accidentally fans out admin SQL with `Promise.all`, this cap stops
+  // the test container from being saturated. Bumping it requires
+  // matching changes to the worker config; do not raise it without
+  // checking integration parallelism end-to-end.
+  adminPool ??= new Pool({ connectionString: getConnectionString(), max: 2 });
 
   return adminPool;
 }

@@ -74,7 +74,7 @@ describe('Execute SQL Tool', () => {
     // Get the registered tool function
     let toolFunction: (params: ExecuteSQLTestParams) => Promise<unknown>;
 
-    (mockServer.registerTool).mockImplementation((name: unknown, config: unknown, func: unknown) => {
+    (mockServer.registerTool).mockImplementation((_name: unknown, _config: unknown, func: unknown) => {
       toolFunction = func as (params: ExecuteSQLTestParams) => Promise<unknown>;
     });
 
@@ -95,8 +95,9 @@ describe('Execute SQL Tool', () => {
       }),
     );
 
-    // Verify that executeQuery was called with correct parameters
-    expect(mockClient.executeQuery).toHaveBeenCalledWith('SELECT * FROM users', []);
+    // No bind parameters were passed by the user, so the tool should call
+    // executeQuery without a params array (lets pg use the simple-query path).
+    expect(mockClient.executeQuery).toHaveBeenCalledWith('SELECT * FROM users', undefined);
   });
 
   it('executes query with parameters successfully', async () => {
@@ -111,7 +112,7 @@ describe('Execute SQL Tool', () => {
     // Get the registered tool function
     let toolFunction: (params: ExecuteSQLTestParams) => Promise<unknown>;
 
-    (mockServer.registerTool).mockImplementation((name: unknown, config: unknown, func: unknown) => {
+    (mockServer.registerTool).mockImplementation((_name: unknown, _config: unknown, func: unknown) => {
       toolFunction = func as (params: ExecuteSQLTestParams) => Promise<unknown>;
     });
 
@@ -144,7 +145,7 @@ describe('Execute SQL Tool', () => {
     // Get the registered tool function
     let toolFunction: (params: ExecuteSQLTestParams) => Promise<unknown>;
 
-    (mockServer.registerTool).mockImplementation((name: unknown, config: unknown, func: unknown) => {
+    (mockServer.registerTool).mockImplementation((_name: unknown, _config: unknown, func: unknown) => {
       toolFunction = func as (params: ExecuteSQLTestParams) => Promise<unknown>;
     });
 
@@ -175,7 +176,7 @@ describe('Execute SQL Tool', () => {
     // Get the registered tool function
     let toolFunction: (params: ExecuteSQLTestParams) => Promise<unknown>;
 
-    (mockServer.registerTool).mockImplementation((name: unknown, config: unknown, func: unknown) => {
+    (mockServer.registerTool).mockImplementation((_name: unknown, _config: unknown, func: unknown) => {
       toolFunction = func as (params: ExecuteSQLTestParams) => Promise<unknown>;
     });
 
@@ -204,7 +205,7 @@ describe('Execute SQL Tool', () => {
     // Get the registered tool function
     let toolFunction: (params: ExecuteSQLTestParams) => Promise<unknown>;
 
-    (mockServer.registerTool).mockImplementation((name: unknown, config: unknown, func: unknown) => {
+    (mockServer.registerTool).mockImplementation((_name: unknown, _config: unknown, func: unknown) => {
       toolFunction = func as (params: ExecuteSQLTestParams) => Promise<unknown>;
     });
 
@@ -240,7 +241,7 @@ describe('Execute SQL Tool', () => {
     // Get the registered tool function
     let toolFunction: (params: ExecuteSQLTestParams) => Promise<unknown>;
 
-    (mockServer.registerTool).mockImplementation((name: unknown, config: unknown, func: unknown) => {
+    (mockServer.registerTool).mockImplementation((_name: unknown, _config: unknown, func: unknown) => {
       toolFunction = func as (params: { query: string; params?: unknown[] }) => Promise<unknown>;
     });
 
@@ -308,7 +309,7 @@ describe('Execute SQL Tool', () => {
     // Get the registered tool function
     let toolFunction: (params: ExecuteSQLTestParams) => Promise<unknown>;
 
-    (mockServer.registerTool).mockImplementation((name: unknown, config: unknown, func: unknown) => {
+    (mockServer.registerTool).mockImplementation((_name: unknown, _config: unknown, func: unknown) => {
       toolFunction = func as (params: { query: string; params?: unknown[] }) => Promise<unknown>;
     });
 
@@ -377,7 +378,7 @@ describe('Execute SQL Tool', () => {
     // Get the registered tool function
     let toolFunction: (params: ExecuteSQLTestParams) => Promise<unknown>;
 
-    (mockServer.registerTool).mockImplementation((name: unknown, config: unknown, func: unknown) => {
+    (mockServer.registerTool).mockImplementation((_name: unknown, _config: unknown, func: unknown) => {
       toolFunction = func as (params: { query: string; params?: unknown[] }) => Promise<unknown>;
     });
 
@@ -513,7 +514,7 @@ describe('Execute SQL Tool', () => {
     // Get the registered tool function
     let toolFunction: (params: ExecuteSQLTestParams) => Promise<unknown>;
 
-    (mockServer.registerTool).mockImplementation((name: unknown, config: unknown, func: unknown) => {
+    (mockServer.registerTool).mockImplementation((_name: unknown, _config: unknown, func: unknown) => {
       toolFunction = func as (params: { query: string; params?: unknown[] }) => Promise<unknown>;
     });
 

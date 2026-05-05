@@ -75,10 +75,10 @@ export function registerExecuteSQLTool(server: McpServer, client: PostgreSQLClie
 
         return false;
       };
-      let validatedParams: unknown[];
+      let validatedParams: unknown[] | undefined;
 
       try {
-        validatedParams = queryParams.map((param, idx) => {
+        const mapped = queryParams.map((param, idx) => {
           if (!isSerializableParam(param)) {
             throw new Error(
               `Parameter at index ${idx} is not serializable (got ${typeof param}). Allowed: scalars, null, Date, Buffer, arrays of allowed values, plain objects (for JSON/JSONB).`,
@@ -87,6 +87,12 @@ export function registerExecuteSQLTool(server: McpServer, client: PostgreSQLClie
 
           return param;
         });
+
+        // Pass `undefined` (not `[]`) when the user didn't bind any parameters
+        // so node-postgres uses the simple-query protocol — extended-query
+        // forces a separate plan cache entry per identical SQL string, and
+        // adds a server round-trip to bind/execute that we don't need here.
+        validatedParams = mapped.length > 0 ? mapped : undefined;
       } catch (error) {
         return toolError(error);
       }

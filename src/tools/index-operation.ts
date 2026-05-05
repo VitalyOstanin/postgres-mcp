@@ -64,7 +64,12 @@ export function registerIndexOperationTool(server: McpServer, client: PostgreSQL
         return toolError(new Error('Not connected to PostgreSQL. Please connect first.'));
       }
 
-      // Check if in read-only mode for write operations
+      // Defense-in-depth: PostgreSQL would reject CREATE/DROP INDEX with
+      // error 25006 (read_only_sql_transaction) on a session opened with
+      // `default_transaction_read_only=on` (see PostgreSQLClient.connect),
+      // but rejecting at the tool boundary returns a domain-specific error
+      // message ("Cannot perform index operation in read-only mode") that's
+      // clearer to LLM clients than the raw PG error code.
       if (client.isReadonly() && operation !== 'list') {
         return toolError(new Error('Cannot perform index operation in read-only mode'));
       }
