@@ -62,7 +62,12 @@ export function registerShowObjectTool(server: McpServer, client: PostgreSQLClie
     'show-object',
     {
       title: 'Show Object',
-      description: 'Show detailed information about a PostgreSQL object (table, view, or function)',
+      description: [
+        'Show detailed information about a PostgreSQL object (table, view, or function).',
+        'Use for: inspecting columns, data types, defaults, nullability of a table or view; reading the full source definition of a function.',
+        'Returns (table/view): `{ name, type, columns: [{ name, type, nullable, default, maxLength, precision, scale }] }`. Returns (function): `{ name, schema, type, arguments, returnType, definition }`.',
+        'Limitations: when multiple functions share the same name (overloading), only the first match is returned. Function definitions can include credentials embedded in SECURITY DEFINER bodies — consider that before sharing the output.',
+      ].join(' '),
       inputSchema: showObjectSchema.shape,
       annotations: {
         readOnlyHint: true,
@@ -101,11 +106,9 @@ export function registerShowObjectTool(server: McpServer, client: PostgreSQLClie
               ? `SELECT table_name as name, 'table' as type FROM information_schema.tables WHERE table_schema = $1 AND table_name = $2`
               : `SELECT table_name as name, 'view' as type FROM information_schema.views WHERE table_schema = $1 AND table_name = $2`;
             const resultArray = await client.executeQuery<TableOrViewInfo>(infoQuery, [schema, name]);
+            const info = resultArray[0];
 
-            if (resultArray.length > 0) {
-              // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
-              const info = resultArray[0]!;
-
+            if (info) {
               result = {
                 name: info.name,
                 type: info.type,
@@ -137,21 +140,17 @@ export function registerShowObjectTool(server: McpServer, client: PostgreSQLClie
               WHERE n.nspname = $1 AND p.proname = $2
             `;
             const resultArray = await client.executeQuery<FunctionInfo>(functionQuery, [schema, name]);
+            const func = resultArray[0];
 
-            if (resultArray.length > 0) {
-              const [func] = resultArray;
-
-              // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-              if (func) {
-                result = {
-                  name: func.name,
-                  schema: func.schema,
-                  type: 'function',
-                  arguments: func.arguments,
-                  returnType: func.return_type,
-                  definition: func.definition,
-                };
-              }
+            if (func) {
+              result = {
+                name: func.name,
+                schema: func.schema,
+                type: 'function',
+                arguments: func.arguments,
+                returnType: func.return_type,
+                definition: func.definition,
+              };
             }
             break;
           }

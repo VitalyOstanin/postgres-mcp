@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, jest } from '@jest/globals';
+import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { MockPostgreSQLClient } from '../__mocks__/postgres-client.mock';
 import { resetMockClient, getMockClient } from '../utils/test-helpers';
@@ -6,12 +6,12 @@ import { registerListSchemasTool } from '../../src/tools/list-schemas';
 import { toolSuccess, toolError } from '../../src/utils/tool-response';
 
 // Mock the PostgreSQL client
-jest.mock('../../src/postgres-client', () => ({
+vi.mock('../../src/postgres-client', () => ({
   PostgreSQLClient: MockPostgreSQLClient,
 }));
 
 interface MockServer {
-  registerTool: jest.Mock;
+  registerTool: Mock;
 }
 
 describe('ListSchemas Tool', () => {
@@ -24,7 +24,7 @@ describe('ListSchemas Tool', () => {
 
     // Create mock server
     mockServer = {
-      registerTool: jest.fn(),
+      registerTool: vi.fn(),
     };
 
     mockClient = getMockClient();
@@ -64,21 +64,25 @@ describe('ListSchemas Tool', () => {
     let toolFunction: any;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    mockServer.registerTool = jest.fn().mockImplementation((name: unknown, config: unknown, func: any) => {
+    mockServer.registerTool = vi.fn().mockImplementation((name: unknown, config: unknown, func: any) => {
       toolFunction = func;
     });
 
     // Register the tool to get the function
     registerListSchemasTool(mockServer as unknown as McpServer, mockClient);
 
-    // Call the tool function
-    const result = await toolFunction!();
+    // Call the tool function with explicit pagination (Zod defaults are not
+    // applied when the handler is invoked directly).
+    const result = await toolFunction!({ limit: 100, offset: 0 });
 
-    // Verify success response
+    // Verify success response (now includes pagination metadata)
     expect(result).toEqual(
       toolSuccess({
         schemas: ['public', 'myschema', 'anotherschema'],
         count: 3,
+        limit: 100,
+        offset: 0,
+        hasMore: false,
       }),
     );
   });
@@ -92,7 +96,7 @@ describe('ListSchemas Tool', () => {
     let toolFunction: any;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    mockServer.registerTool = jest.fn().mockImplementation((name: unknown, config: unknown, func: any) => {
+    mockServer.registerTool = vi.fn().mockImplementation((name: unknown, config: unknown, func: any) => {
       toolFunction = func;
     });
 
@@ -100,7 +104,7 @@ describe('ListSchemas Tool', () => {
     registerListSchemasTool(mockServer as unknown as McpServer, mockClient);
 
     // Call the tool function
-    const result = await toolFunction!();
+    const result = await toolFunction!({});
 
     // Verify error response
     expect(result).toEqual(
@@ -122,7 +126,7 @@ describe('ListSchemas Tool', () => {
     let toolFunction: any;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    mockServer.registerTool = jest.fn().mockImplementation((name: unknown, config: unknown, func: any) => {
+    mockServer.registerTool = vi.fn().mockImplementation((name: unknown, config: unknown, func: any) => {
       toolFunction = func;
     });
 
@@ -130,7 +134,7 @@ describe('ListSchemas Tool', () => {
     registerListSchemasTool(mockServer as unknown as McpServer, mockClient);
 
     // Call the tool function
-    const result = await toolFunction!();
+    const result = await toolFunction!({});
 
     // Verify error response
     expect(result).toEqual(toolError(queryError));

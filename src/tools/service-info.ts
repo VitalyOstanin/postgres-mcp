@@ -17,7 +17,12 @@ export function registerServiceInfoTool(server: McpServer, client: PostgreSQLCli
     'service-info',
     {
       title: 'Service Information',
-      description: 'Get PostgreSQL service information and current connection status',
+      description: [
+        'Get PostgreSQL service information and current connection status.',
+        'Use for: a quick health check before issuing queries; inspecting current pool size, timeouts and timezone.',
+        'Returns: `name`, `version`, `isConnected`, `readonly`, `timezone`. When connected: `poolSize`, `idleTimeoutMillis`, `connectionTimeoutMillis`. When disconnected: `disconnectReason` and/or `connectionError`.',
+        'Limitations: this reports server-internal state only — it does not query PostgreSQL.',
+      ].join(' '),
       inputSchema: serviceInfoSchema.shape,
       annotations: {
         readOnlyHint: true,

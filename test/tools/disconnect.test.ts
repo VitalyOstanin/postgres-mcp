@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, jest } from '@jest/globals';
+import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { MockPostgreSQLClient } from '../__mocks__/postgres-client.mock';
 import { resetMockClient, getMockClient } from '../utils/test-helpers';
@@ -6,12 +6,12 @@ import { registerDisconnectTool } from '../../src/tools/disconnect';
 import { toolSuccess, toolError } from '../../src/utils/tool-response';
 
 // Mock the PostgreSQL client
-jest.mock('../../src/postgres-client', () => ({
+vi.mock('../../src/postgres-client', () => ({
   PostgreSQLClient: MockPostgreSQLClient,
 }));
 
 interface MockServer {
-  registerTool: jest.Mock;
+  registerTool: Mock;
 }
 
 describe('Disconnect Tool', () => {
@@ -24,7 +24,7 @@ describe('Disconnect Tool', () => {
 
     // Create mock server
     mockServer = {
-      registerTool: jest.fn(),
+      registerTool: vi.fn(),
     };
 
     mockClient = getMockClient();
@@ -40,7 +40,7 @@ describe('Disconnect Tool', () => {
       expect.objectContaining({
         title: 'Disconnect from PostgreSQL',
         description: expect.stringContaining('Disconnect from PostgreSQL'),
-        annotations: { readOnlyHint: true },
+        annotations: { readOnlyHint: false },
       }),
       expect.any(Function),
     );
@@ -55,7 +55,7 @@ describe('Disconnect Tool', () => {
     let toolFunction: any;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    mockServer.registerTool = jest.fn().mockImplementation((name: unknown, config: unknown, func: any) => {
+    mockServer.registerTool = vi.fn().mockImplementation((name: unknown, config: unknown, func: any) => {
       toolFunction = func;
     });
 
@@ -87,7 +87,7 @@ describe('Disconnect Tool', () => {
     let toolFunction: any;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    mockServer.registerTool = jest.fn().mockImplementation((name: unknown, config: unknown, func: any) => {
+    mockServer.registerTool = vi.fn().mockImplementation((name: unknown, config: unknown, func: any) => {
       toolFunction = func;
     });
 
@@ -113,15 +113,15 @@ describe('Disconnect Tool', () => {
     // We need to create a new mock client with the error
     const errorClient = new MockPostgreSQLClient();
 
-    jest.spyOn(errorClient, 'isConnectedToPostgreSQL').mockReturnValue(true);
-    jest.spyOn(errorClient, 'disconnect').mockRejectedValue(disconnectionError);
+    vi.spyOn(errorClient, 'isConnectedToPostgreSQL').mockReturnValue(true);
+    vi.spyOn(errorClient, 'disconnect').mockRejectedValue(disconnectionError);
 
     // Get the registered tool function
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let toolFunction: any;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    mockServer.registerTool = jest.fn().mockImplementation((name: unknown, config: unknown, func: any) => {
+    mockServer.registerTool = vi.fn().mockImplementation((name: unknown, config: unknown, func: any) => {
       toolFunction = func;
     });
 

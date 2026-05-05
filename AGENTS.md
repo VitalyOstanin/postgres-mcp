@@ -218,19 +218,20 @@ testConcurrency();
 ```
 
 ### MCP Stdio Debugging Workflow
-- To run the built server locally, execute `Postgres_URL="Postgres://localhost:27017" node dist/index.js` (replace with real credentials).
+- To run the built server locally, execute `POSTGRES_MCP_CONNECTION_STRING="postgresql://user:password@localhost:5432/dbname" node dist/index.js` (replace with real credentials).
 - For rapid manual testing without a full client, you can pipe JSON-RPC messages directly:
   1. Start the server in one terminal with the environment variables above.
   2. In another terminal, send the initialization sequence by writing JSON-RPC lines directly to the server STDIN:
      ```bash
-     cat <<'JSON' | Postgres_URL=... node dist/index.js
+     cat <<'JSON' | POSTGRES_MCP_CONNECTION_STRING="postgresql://user:password@localhost:5432/dbname" node dist/index.js
      {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","clientInfo":{"name":"debug","version":"0.1"},"capabilities":{}}}
      {"jsonrpc":"2.0","method":"notifications/initialized"}
-     {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"find","arguments":{"database":"test","collection":"users","filter":{}}}}
+     {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"connect","arguments":{}}}
+     {"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"execute-sql","arguments":{"query":"SELECT 1"}}}
      JSON
      ```
      For interactive sessions, you can keep the process running and append more requests either via `printf '...\n' >>pipe` (using a named pipe) or by entering lines manually.
-  3. After the server responds, continue sending `notifications/initialized` and subsequent `tools/call` payloads.
+  3. After the server responds to `initialize`, continue sending `notifications/initialized` and subsequent `tools/call` payloads.
 - When debugging complex flows, prefer writing a short Node.js script that uses `StdioClientTransport` and `Client` from `@modelcontextprotocol/sdk/dist/esm/client/index.js`. Spawn the server via `child_process.spawn`, wire its `stdin`/`stdout` to the transport, call `await client.connect()`, then invoke `client.callTool(...)` with structured arguments. This provides richer logs and automatic initialization handling.
 
 Run test: `npx tsx temp/test-mutex-pool.ts`

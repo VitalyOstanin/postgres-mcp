@@ -1,14 +1,20 @@
-import { mkdirSync, existsSync } from 'fs';
+import { mkdtempSync } from 'fs';
+import { join } from 'path';
+import { tmpdir } from 'os';
 
 /**
- * Generates a temporary file path for PostgreSQL operations
+ * Generate an absolute path for a temporary export file.
+ *
+ * Implementation creates a fresh, mode-0700 directory inside `os.tmpdir()`
+ * via `mkdtempSync`. This avoids the symlink/TOCTOU race that the previous
+ * `Date.now()+random()` approach was vulnerable to: only this process can
+ * write into the resulting directory.
+ *
+ * `extension` controls the file suffix (default: `json`). The file itself is
+ * not created here — callers open it for writing.
  */
-export function generateTempFilePath(): string {
-  const dir = '/tmp';
+export function generateTempFilePath(extension: string = 'json'): string {
+  const dir = mkdtempSync(join(tmpdir(), 'postgres-mcp-'));
 
-  if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true });
-  }
-
-  return `${dir}/postgres-${Date.now()}-${Math.random().toString(36).substring(2, 10)}.json`;
+  return join(dir, `postgres.${extension}`);
 }

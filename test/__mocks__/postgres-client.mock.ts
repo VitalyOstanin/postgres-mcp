@@ -1,3 +1,5 @@
+import { vi } from 'vitest';
+
 class MockPostgreSQLClientClass {
   private executeQueryResult: Array<Record<string, unknown>> = [];
   private executeQueryError: Error | null = null;
@@ -6,17 +8,17 @@ class MockPostgreSQLClientClass {
   private mockConnectionError: Error | null = null;
   private mockDisconnectReason: string | null = null;
   private mockConnectionString: string | null = null;
-  private mockPool: { connect: () => Promise<{ query: (query: string, params?: Array<string | number | boolean | null>) => Promise<{ rows: Array<Record<string, unknown>> }>; release: () => void }> } | null = null;
+  private mockPool: { connect: () => Promise<{ query: (query: string, params?: unknown[]) => Promise<{ rows: Array<Record<string, unknown>> }>; release: () => void }> } | null = null;
   private mockPoolSize: number = 1;
   private mockIdleTimeoutMillis: number = 30000;
   private mockConnectionTimeoutMillis: number = 10000;
 
   constructor() {
     // Initialize mock values
-    this.mockPool = { connect: () => Promise.resolve({ query: (_query: string, _params?: Array<string | number | boolean | null>) => Promise.resolve({ rows: [] }), release() {} }) };
+    this.mockPool = { connect: () => Promise.resolve({ query: (_query: string, _params?: unknown[]) => Promise.resolve({ rows: [] }), release() {} }) };
   }
 
-  connect = jest.fn().mockImplementation(async (readonlyMode: boolean = true, poolSize: number = 1, idleTimeout: number = 30000, connectionTimeout: number = 10000): Promise<void> => {
+  connect = vi.fn().mockImplementation(async (readonlyMode: boolean = true, poolSize: number = 1, idleTimeout: number = 30000, connectionTimeout: number = 10000): Promise<void> => {
     this.mockReadonlyMode = readonlyMode;
     this.mockIsConnected = true;
     this.mockDisconnectReason = null;
@@ -25,10 +27,10 @@ class MockPostgreSQLClientClass {
     this.mockIdleTimeoutMillis = idleTimeout;
     this.mockConnectionTimeoutMillis = connectionTimeout;
     // Simulate a simple pool object
-    this.mockPool = { connect: () => Promise.resolve({ query: (_query: string, _params?: Array<string | number | boolean | null>) => Promise.resolve({ rows: [] }), release() {} }) };
+    this.mockPool = { connect: () => Promise.resolve({ query: (_query: string, _params?: unknown[]) => Promise.resolve({ rows: [] }), release() {} }) };
   });
 
-  disconnect = jest.fn().mockImplementation(async (reason: string = "normal disconnect"): Promise<void> => {
+  disconnect = vi.fn().mockImplementation(async (reason: string = "normal disconnect"): Promise<void> => {
     this.mockIsConnected = false;
     this.mockPool = null;
     this.mockConnectionString = null;
@@ -36,27 +38,27 @@ class MockPostgreSQLClientClass {
     this.mockConnectionError = null;
   });
 
-  setReadonlyMode = jest.fn().mockImplementation((readonly: boolean): void => {
+  setReadonlyMode = vi.fn().mockImplementation((readonly: boolean): void => {
     this.mockReadonlyMode = readonly;
   });
 
-  isReadonly = jest.fn().mockImplementation((): boolean => {
+  isReadonly = vi.fn().mockImplementation((): boolean => {
     return this.mockReadonlyMode;
   });
 
-  setConnected = jest.fn().mockImplementation((connected: boolean): void => {
+  setConnected = vi.fn().mockImplementation((connected: boolean): void => {
     this.mockIsConnected = connected;
   });
 
-  setExecuteQueryResult = jest.fn().mockImplementation((result: Array<Record<string, unknown>>): void => {
+  setExecuteQueryResult = vi.fn().mockImplementation((result: Array<Record<string, unknown>>): void => {
     this.executeQueryResult = result;
   });
 
-  setExecuteQueryError = jest.fn().mockImplementation((error: Error | null): void => {
+  setExecuteQueryError = vi.fn().mockImplementation((error: Error | null): void => {
     this.executeQueryError = error;
   });
 
-  executeQuery = jest.fn().mockImplementation(async <T>(_query: string, _params?: Array<string | number | boolean | Date | null>): Promise<T[]> => {
+  executeQuery = vi.fn().mockImplementation(async <T>(_query: string, _params?: unknown[]): Promise<T[]> => {
     if (this.executeQueryError) {
       throw this.executeQueryError;
     }
@@ -64,11 +66,11 @@ class MockPostgreSQLClientClass {
     return this.executeQueryResult as T[];
   });
 
-  isConnectedToPostgreSQL = jest.fn().mockImplementation((): boolean => {
+  isConnectedToPostgreSQL = vi.fn().mockImplementation((): boolean => {
     return this.mockIsConnected;
   });
 
-  getConnectionInfo = jest.fn().mockImplementation((): { isConnected: boolean; disconnectReason?: string; connectionError?: string } => {
+  getConnectionInfo = vi.fn().mockImplementation((): { isConnected: boolean; disconnectReason?: string; connectionError?: string } => {
     const info: { isConnected: boolean; disconnectReason?: string; connectionError?: string } = {
       isConnected: this.mockIsConnected,
     };
@@ -84,12 +86,12 @@ class MockPostgreSQLClientClass {
     return info;
   });
 
-  getConnectionString = jest.fn().mockImplementation((): string | null => {
+  getConnectionString = vi.fn().mockImplementation((): string | null => {
     // Return a mock connection string for testing
     return this.mockConnectionString ?? 'postgresql://test:test@localhost:5432/test';
   });
 
-  getPool = jest.fn().mockImplementation(() => {
+  getPool = vi.fn().mockImplementation(() => {
     if (!(this.mockIsConnected && this.mockPool)) {
       this.mockConnectionError ??= new Error('Not connected to PostgreSQL. Please connect first.');
       throw this.mockConnectionError;
@@ -98,28 +100,30 @@ class MockPostgreSQLClientClass {
     return this.mockPool;
   });
 
-  getPoolSize = jest.fn().mockImplementation((): number => {
+  getPoolSize = vi.fn().mockImplementation((): number => {
     return this.mockPoolSize;
   });
 
-  getIdleTimeoutMillis = jest.fn().mockImplementation((): number => {
+  getIdleTimeoutMillis = vi.fn().mockImplementation((): number => {
     return this.mockIdleTimeoutMillis;
   });
 
-  getConnectionTimeoutMillis = jest.fn().mockImplementation((): number => {
+  getConnectionTimeoutMillis = vi.fn().mockImplementation((): number => {
     return this.mockConnectionTimeoutMillis;
   });
 }
 
-// Create a type-compatible mock object
-export const MockPostgreSQLClient = jest.fn().mockImplementation(() => new MockPostgreSQLClientClass());
+// Export the class directly as the mock constructor.
+// vitest's `vi.fn().mockImplementation(() => new Class())` cannot be invoked
+// via `new`, so we expose the class itself.
+export const MockPostgreSQLClient = MockPostgreSQLClientClass;
 
 // Maintain a singleton instance for testing purposes
 let mockInstance: InstanceType<typeof MockPostgreSQLClient> | null = null;
 
 // Create a getInstance function that returns one singleton mock instance
 export const MockPostgreSQLClientInstance = {
-  getInstance: jest.fn((): InstanceType<typeof MockPostgreSQLClient> => {
+  getInstance: vi.fn((): InstanceType<typeof MockPostgreSQLClient> => {
     mockInstance ??= new MockPostgreSQLClient();
 
     return mockInstance;

@@ -4,60 +4,33 @@ import type { PostgreSQLClient } from '../postgres-client.js';
 import { toolSuccess, toolError } from '../utils/tool-response.js';
 import { streamPostgresQueryToFile, generatePostgresTempFilePath } from '../utils/postgres-stream.js';
 import { supportsCursor } from '../utils/query-analyzer.js';
+import { validateSafeOutputPath } from '../utils/safe-path.js';
 
 /**
- * Helper function to write query results to a file
+ * Write an in-memory array of result rows to a file, reusing the streaming
+ * sink from `streamPostgresQueryToFile`. The "stream" here just iterates the
+ * array, so there is one canonical write path for both cursor-based exports
+ * and forced (non-streaming) exports.
  */
 async function writeResultsToFile(
   results: Array<Record<string, unknown>>,
   format: 'jsonl' | 'json' = 'jsonl',
   filePath?: string,
 ): Promise<{ filePath: string; count: number }> {
-  const resolvedFilePath = filePath ?? generatePostgresTempFilePath(format);
-  // Import required modules for file operations
-  const { createWriteStream } = await import('fs');
-  const { mkdir } = await import('fs/promises');
-  const { dirname } = await import('path');
-
-  // Ensure the directory exists
-  await mkdir(dirname(resolvedFilePath), { recursive: true });
-
-  // Create write stream
-  const writeStream = createWriteStream(resolvedFilePath);
-
-  if (format === 'jsonl') {
-    // Write each record as a JSON line
+  const target = filePath ?? generatePostgresTempFilePath(format);
+  const arrayProducer = async (onRow: (row: Record<string, unknown>) => void | Promise<void>): Promise<void> => {
     for (const row of results) {
-      writeStream.write(`${JSON.stringify(row)}\n`);
+      await onRow(row);
     }
-  } else {
-    // Write as JSON array
-    writeStream.write('[');
-    for (let i = 0; i < results.length; i++) {
-      if (i > 0) writeStream.write(',');
-      writeStream.write(JSON.stringify(results[i]));
-    }
-    writeStream.write(']');
-  }
-
-  writeStream.end();
-
-  // Wait for the stream to finish
-  await new Promise<void>((resolve, reject) => {
-    writeStream.on('finish', () => { resolve(); });
-    writeStream.on('error', reject);
-  });
-
-  return {
-    filePath: resolvedFilePath,
-    count: results.length,
   };
+
+  return streamPostgresQueryToFile(arrayProducer, target, format);
 }
 
 const executeSQLSchema = z.object({
   query: z.string().describe('SQL query to execute (SELECT, INSERT, UPDATE, DELETE, DDL)'),
   params: z.array(z.unknown()).optional().describe('Parameters for the SQL query'),
-  saveToFile: z.boolean().optional().describe('Save results to a file instead of returning them directly. Useful for large datasets that can be analyzed by scripts. When enabled, uses cursor-based streaming for SELECT queries to avoid memory issues.'),
+  saveToFile: z.boolean().optional().default(false).describe('Save results to a file instead of returning them directly. Useful for large datasets that can be analyzed by scripts. When enabled, uses cursor-based streaming for SELECT queries to avoid memory issues. Default: false.'),
   filePath: z.string().optional().describe('Explicit path to save the file (optional, auto-generated if not provided). Directory will be created if it doesn\'t exist.'),
   format: z.enum(['jsonl', 'json']).optional().describe('Output format when saving to file: jsonl (JSON Lines) or json (JSON array format). Default is jsonl.'),
   forceSaveToFile: z.boolean().optional().default(false).describe('Force saving results to a file even if the query does not support cursor-based streaming (e.g., INSERT, UPDATE, DELETE). When this flag is true, non-SELECT queries will also be saved to file but may consume more memory. Default is false.'),
@@ -70,24 +43,71 @@ export function registerExecuteSQLTool(server: McpServer, client: PostgreSQLClie
     'execute-sql',
     {
       title: 'Execute SQL Query',
-      description: 'Execute a custom SQL query against PostgreSQL (supports SELECT, INSERT, UPDATE, DELETE, DDL operations)',
+      description: [
+        'Execute a custom SQL query against PostgreSQL (supports SELECT, INSERT, UPDATE, DELETE, and DDL operations).',
+        'Use for: running ad-hoc analytical queries; bulk inserts/updates with parameter binding; exporting large result sets to a file via cursor streaming.',
+        'Parameters use $1/$2 placeholders. Allowed values: scalars, null, Date, Buffer, arrays of allowed values, plain objects (sent as JSON/JSONB).',
+        'When `saveToFile=true`, SELECT/WITH/VALUES queries stream rows to disk via a server-side cursor; non-cursor queries require `forceSaveToFile=true` and are buffered in memory first.',
+        'The output `filePath` is restricted to the OS temp directory (override with the POSTGRES_MCP_OUTPUT_DIRS env var, `:`-separated whitelist).',
+        'Limitations: in read-only mode the session is opened with `default_transaction_read_only=on`; data-modifying statements fail with PostgreSQL error 25006. No automatic LIMIT is applied — add one for large tables.',
+      ].join(' '),
       inputSchema: executeSQLSchema.shape,
     },
     async (params: ExecuteSQLParams) => {
       const { query, params: queryParams = [], saveToFile, forceSaveToFile } = params;
-      // Type-check and convert params to the expected type
-      const validatedParams: Array<string | number | boolean | Date | null> = queryParams.map(param => {
-        if (param === null ||
-            typeof param === 'string' ||
-            typeof param === 'number' ||
-            typeof param === 'boolean' ||
-            param instanceof Date) {
-          return param;
+      // Validate parameters: pass through scalars, Dates, Buffers, arrays, and
+      // plain objects (for JSON/JSONB) unchanged. Reject non-serializable
+      // values (functions, symbols, exotic objects) explicitly so the user
+      // gets a clear error instead of a String(param) coercion that silently
+      // sends "[object Object]" or "function () { ... }" to PostgreSQL.
+      const isSerializableParam = (value: unknown): boolean => {
+        if (value === null || value === undefined) {
+          return true;
         }
 
-        // Convert other types to string as a fallback
-        return String(param);
-      });
+        const type = typeof value;
+
+        if (type === 'string' || type === 'number' || type === 'boolean' || type === 'bigint') {
+          return true;
+        }
+
+        if (value instanceof Date) {
+          return true;
+        }
+
+        if (Buffer.isBuffer(value)) {
+          return true;
+        }
+
+        if (Array.isArray(value)) {
+          return value.every(isSerializableParam);
+        }
+
+        if (type === 'object') {
+          const proto = Object.getPrototypeOf(value);
+
+          if (proto === Object.prototype || proto === null) {
+            return Object.values(value as Record<string, unknown>).every(isSerializableParam);
+          }
+        }
+
+        return false;
+      };
+      let validatedParams: unknown[];
+
+      try {
+        validatedParams = queryParams.map((param, idx) => {
+          if (!isSerializableParam(param)) {
+            throw new Error(
+              `Parameter at index ${idx} is not serializable (got ${typeof param}). Allowed: scalars, null, Date, Buffer, arrays of allowed values, plain objects (for JSON/JSONB).`,
+            );
+          }
+
+          return param;
+        });
+      } catch (error) {
+        return toolError(error);
+      }
 
       if (!client.isConnectedToPostgreSQL()) {
         return toolError(new Error('Not connected to PostgreSQL. Please connect first.'));
@@ -98,13 +118,17 @@ export function registerExecuteSQLTool(server: McpServer, client: PostgreSQLClie
 
       try {
         if (saveToFile) {
+          // Validate user-supplied filePath against the safe-output whitelist
+          const requestedFilePath = params.filePath !== undefined
+            ? validateSafeOutputPath(params.filePath)
+            : undefined;
           // Check if the query supports cursor-based streaming
           const cursorSupported = await supportsCursor(query);
 
           if (cursorSupported) {
             // Use cursor-based streaming for SELECT queries
             const format = params.format ?? 'jsonl';
-            const filePath = params.filePath ?? generatePostgresTempFilePath(format);
+            const filePath = requestedFilePath ?? generatePostgresTempFilePath(format);
             // Create a streaming function that uses the client's streamQuery method
             const streamQueryFunction = async (onRow: (row: Record<string, unknown>) => void | Promise<void>) => {
               await client.streamQuery(query, validatedParams, onRow);
@@ -124,7 +148,7 @@ export function registerExecuteSQLTool(server: McpServer, client: PostgreSQLClie
             // If cursor is not supported but forceSaveToFile is true, save results without streaming
             const results = await client.executeQuery<Record<string, unknown>>(query, validatedParams);
             // Write results to file without streaming (for non-cursor queries)
-            const { filePath, count } = await writeResultsToFile(results, params.format ?? 'jsonl', params.filePath);
+            const { filePath, count } = await writeResultsToFile(results, params.format ?? 'jsonl', requestedFilePath);
 
             return toolSuccess({
               savedToFile: true,

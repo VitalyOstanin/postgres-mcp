@@ -39,6 +39,20 @@ async function main() {
   const connectionTimeout = argv['connection-timeout'];
   const transport = new StdioServerTransport();
   const server = new PostgreSQLServer(argv['auto-connect'], readOnlyMode, poolSize, idleTimeout, connectionTimeout);
+  // Wire graceful shutdown: close the pool when the host sends SIGINT/SIGTERM
+  // so PostgreSQL does not see abrupt connection drops on shutdown.
+  let shuttingDown = false;
+  const shutdown = (signal: string): void => {
+    if (shuttingDown) {
+      return;
+    }
+    shuttingDown = true;
+    console.error(`Received ${signal}, shutting down PostgreSQL MCP server...`);
+    server.shutdown().finally(() => { process.exit(0); });
+  };
+
+  process.on('SIGINT', () => { shutdown('SIGINT'); });
+  process.on('SIGTERM', () => { shutdown('SIGTERM'); });
 
   await server.connect(transport);
 }

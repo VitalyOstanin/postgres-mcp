@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, jest } from '@jest/globals';
+import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { MockPostgreSQLClient } from '../__mocks__/postgres-client.mock';
 import { resetMockClient, getMockClient } from '../utils/test-helpers';
@@ -7,18 +7,18 @@ import { toolSuccess } from '../../src/utils/tool-response';
 import { VERSION } from '../../src/version';
 
 // Mock the PostgreSQL client
-jest.mock('../../src/postgres-client', () => ({
+vi.mock('../../src/postgres-client', () => ({
   PostgreSQLClient: MockPostgreSQLClient,
 }));
 
 // Mock the date utility function
-jest.mock('../../src/utils/date', () => ({
-  getTimezone: jest.fn().mockReturnValue('UTC'),
-  initializeTimezone: jest.fn(),
+vi.mock('../../src/utils/date', () => ({
+  getTimezone: vi.fn().mockReturnValue('UTC'),
+  initializeTimezone: vi.fn(),
 }));
 
 interface MockServer {
-  registerTool: jest.Mock;
+  registerTool: Mock;
 }
 
 describe('ServiceInfo Tool', () => {
@@ -31,7 +31,7 @@ describe('ServiceInfo Tool', () => {
 
     // Create mock server
     mockServer = {
-      registerTool: jest.fn(),
+      registerTool: vi.fn(),
     };
 
     mockClient = getMockClient();
@@ -56,21 +56,21 @@ describe('ServiceInfo Tool', () => {
   it('returns service info when connected', async () => {
     // Mock client is connected
     mockClient.setConnected(true);
-    jest.spyOn(mockClient, 'isReadonly').mockReturnValue(false);
+    vi.spyOn(mockClient, 'isReadonly').mockReturnValue(false);
 
     // Mock connection info
     const mockConnectionInfo = {
       isConnected: true,
     };
 
-    jest.spyOn(mockClient, 'getConnectionInfo').mockReturnValue(mockConnectionInfo);
+    vi.spyOn(mockClient, 'getConnectionInfo').mockReturnValue(mockConnectionInfo);
 
     // Get the registered tool function
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let toolFunction: any;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    mockServer.registerTool = jest.fn().mockImplementation((name: unknown, config: unknown, func: any) => {
+    mockServer.registerTool = vi.fn().mockImplementation((name: unknown, config: unknown, func: any) => {
       toolFunction = func;
     });
 
@@ -105,14 +105,14 @@ describe('ServiceInfo Tool', () => {
       connectionError: 'Connection failed',
     };
 
-    jest.spyOn(mockClient, 'getConnectionInfo').mockReturnValue(mockConnectionInfo);
+    vi.spyOn(mockClient, 'getConnectionInfo').mockReturnValue(mockConnectionInfo);
 
     // Get the registered tool function
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let toolFunction: any;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    mockServer.registerTool = jest.fn().mockImplementation((name: unknown, config: unknown, func: any) => {
+    mockServer.registerTool = vi.fn().mockImplementation((name: unknown, config: unknown, func: any) => {
       toolFunction = func;
     });
 
@@ -145,14 +145,14 @@ describe('ServiceInfo Tool', () => {
       disconnectReason: 'normal disconnect',
     };
 
-    jest.spyOn(mockClient, 'getConnectionInfo').mockReturnValue(mockConnectionInfo);
+    vi.spyOn(mockClient, 'getConnectionInfo').mockReturnValue(mockConnectionInfo);
 
     // Get the registered tool function
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let toolFunction: any;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    mockServer.registerTool = jest.fn().mockImplementation((name: unknown, config: unknown, func: any) => {
+    mockServer.registerTool = vi.fn().mockImplementation((name: unknown, config: unknown, func: any) => {
       toolFunction = func;
     });
 
@@ -186,14 +186,14 @@ describe('ServiceInfo Tool', () => {
       connectionError: 'Connection timeout error',
     };
 
-    jest.spyOn(mockClient, 'getConnectionInfo').mockReturnValue(mockConnectionInfo);
+    vi.spyOn(mockClient, 'getConnectionInfo').mockReturnValue(mockConnectionInfo);
 
     // Get the registered tool function
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let toolFunction: any;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    mockServer.registerTool = jest.fn().mockImplementation((name: unknown, config: unknown, func: any) => {
+    mockServer.registerTool = vi.fn().mockImplementation((name: unknown, config: unknown, func: any) => {
       toolFunction = func;
     });
 

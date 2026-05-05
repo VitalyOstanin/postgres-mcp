@@ -15,10 +15,16 @@ export function registerDisconnectTool(server: McpServer, client: PostgreSQLClie
     'disconnect',
     {
       title: 'Disconnect from PostgreSQL',
-      description: 'Disconnect from PostgreSQL and clear the connection. Use service-info to check connection status after disconnecting.',
+      description: [
+        'Disconnect from PostgreSQL: ends the connection pool, closes all idle TCP sockets, and clears the in-memory connection state.',
+        'Use for: cleanly tearing down the session before exit; releasing the pool so a subsequent `connect` can use a different connection string or readonly mode.',
+        'Use `service-info` afterwards to verify `isConnected: false`.',
+        'Limitations: this is a no-op (returns success) when the server is already disconnected.',
+      ].join(' '),
       inputSchema: disconnectSchema.shape,
       annotations: {
-        readOnlyHint: true,
+        // disconnect tears down the pool — a server-state mutation, not a read.
+        readOnlyHint: false,
       },
     },
     async (_params, _extra) => {

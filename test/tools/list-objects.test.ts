@@ -1,0 +1,73 @@
+import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
+import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { MockPostgreSQLClient } from '../__mocks__/postgres-client.mock';
+import { resetMockClient, getMockClient } from '../utils/test-helpers';
+import { registerListObjectsTool } from '../../src/tools/list-objects';
+
+vi.mock('../../src/postgres-client', () => ({
+  PostgreSQLClient: MockPostgreSQLClient,
+}));
+
+interface MockServer {
+  registerTool: Mock;
+}
+
+interface ListObjectsParams {
+  schema?: string;
+  type?: 'table' | 'view' | 'function' | 'all';
+}
+
+describe('List Objects Tool', () => {
+  let mockServer: MockServer;
+  let mockClient: ReturnType<typeof getMockClient>;
+  let toolFunction: (params: ListObjectsParams) => Promise<unknown>;
+
+  beforeEach(() => {
+    resetMockClient();
+
+    mockServer = {
+      registerTool: vi.fn().mockImplementation((_name: unknown, _config: unknown, fn: unknown) => {
+        toolFunction = fn as typeof toolFunction;
+      }) as Mock,
+    };
+
+    mockClient = getMockClient();
+    mockClient.setConnected(true);
+    registerListObjectsTool(mockServer as unknown as McpServer, mockClient);
+  });
+
+  it('does not reference the removed proisagg column for type=function (L5 fix)', async () => {
+    mockClient.setExecuteQueryResult([]);
+
+    await toolFunction({ schema: 'public', type: 'function' });
+
+    const [actualQuery] = (mockClient.executeQuery as Mock).mock.calls[0] as [string];
+
+    expect(actualQuery).not.toMatch(/proisagg/);
+    expect(actualQuery).toMatch(/p\.prokind\s*=\s*'f'/);
+  });
+
+  it('does not reference proisagg in the type=all union either', async () => {
+    mockClient.setExecuteQueryResult([]);
+
+    await toolFunction({ schema: 'public', type: 'all' });
+
+    const [actualQuery] = (mockClient.executeQuery as Mock).mock.calls[0] as [string];
+
+    expect(actualQuery).not.toMatch(/proisagg/);
+    expect(actualQuery).toMatch(/p\.prokind\s*=\s*'f'/);
+  });
+
+  it('returns the queried objects', async () => {
+    mockClient.setExecuteQueryResult([
+      { name: 'users', type: 'table' },
+      { name: 'orders', type: 'table' },
+    ]);
+
+    const result = (await toolFunction({ schema: 'public', type: 'table' })) as {
+      structuredContent: { payload: { count: number } };
+    };
+
+    expect(result.structuredContent.payload.count).toBe(2);
+  });
+});

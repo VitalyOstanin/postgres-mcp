@@ -3,6 +3,7 @@ import { VERSION } from "./version.js";
 import { PostgreSQLClient } from "./postgres-client.js";
 import { loadConfig } from "./config.js";
 import { initializeTimezone } from "./utils/date.js";
+import { redactConnectionString } from "./utils/redact.js";
 import { registerConnectTool } from "./tools/connect.js";
 import { registerDisconnectTool } from "./tools/disconnect.js";
 import { registerListSchemasTool } from "./tools/list-schemas.js";
@@ -37,7 +38,7 @@ export class PostgreSQLServer {
 
     initializeTimezone(config.timezone);
 
-    this.postgresClient = PostgreSQLClient.getInstance();
+    this.postgresClient = new PostgreSQLClient();
     // Set the readonly mode immediately when creating the server
     this.postgresClient.setReadonlyMode(readonlyMode);
 
@@ -58,7 +59,9 @@ export class PostgreSQLServer {
       if (connectionString) {
         // Connect in readonly mode if it's enabled
         this.postgresClient.connect(readonlyMode, poolSize, idleTimeout, connectionTimeout).catch(error => {
-          console.error("Failed to auto-connect to PostgreSQL:", error);
+          const message = error instanceof Error ? error.message : String(error);
+
+          console.error("Failed to auto-connect to PostgreSQL:", redactConnectionString(message));
           // Terminate server due to connection failure
           console.error("Terminating server due to connection failure");
           process.exit(1);
@@ -69,5 +72,19 @@ export class PostgreSQLServer {
 
   async connect(transport: Parameters<McpServer["connect"]>[0]): Promise<void> {
     await this.server.connect(transport);
+  }
+
+  /**
+   * Best-effort graceful shutdown: close the PostgreSQL pool so any in-flight
+   * connections are released cleanly. Safe to call multiple times.
+   */
+  async shutdown(): Promise<void> {
+    try {
+      if (this.postgresClient.isConnectedToPostgreSQL()) {
+        await this.postgresClient.disconnect('server shutdown');
+      }
+    } catch (error) {
+      console.error('Error while shutting down PostgreSQL client:', error);
+    }
   }
 }

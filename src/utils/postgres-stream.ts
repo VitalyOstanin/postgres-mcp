@@ -120,11 +120,8 @@ export async function streamPostgresQueryToFile(
 }
 
 /**
- * Generate a temporary file path with specific format
+ * Generate a temporary file path with the requested format extension.
  */
 export function generatePostgresTempFilePath(format: 'jsonl' | 'json' = 'jsonl'): string {
-  const base = generateTempFilePath();
-
-  // Replace the .json extension with the appropriate one
-  return format === 'jsonl' ? base.replace('.json', '.jsonl') : base;
+  return generateTempFilePath(format);
 }

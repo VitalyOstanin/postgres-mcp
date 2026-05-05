@@ -1,24 +1,25 @@
-import { describe, it, expect, beforeEach, jest } from '@jest/globals';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { MockPostgreSQLClient } from '../__mocks__/postgres-client.mock';
 import { resetMockClient, getMockClient, createMockServer, type MockServer } from '../utils/test-helpers';
 import { registerExecuteSQLTool } from '../../src/tools/execute-sql';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { toolSuccess, toolError } from '../../src/utils/tool-response';
+import { streamPostgresQueryToFile } from '../../src/utils/postgres-stream';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
 // Mock the PostgreSQL client
-jest.mock('../../src/postgres-client', () => ({
+vi.mock('../../src/postgres-client', () => ({
   PostgreSQLClient: MockPostgreSQLClient,
 }));
 
 // Mock the postgres streaming utility
-jest.mock('../../src/utils/postgres-stream', () => {
-  const actualModule: typeof import('../../src/utils/postgres-stream') = jest.requireActual('../../src/utils/postgres-stream');
+vi.mock('../../src/utils/postgres-stream', async (importOriginal) => {
+  const actualModule = await importOriginal<typeof import('../../src/utils/postgres-stream')>();
 
   return {
     ...actualModule,
-    streamPostgresQueryToFile: jest.fn(),
+    streamPostgresQueryToFile: vi.fn(),
   };
 });
 
@@ -73,7 +74,7 @@ describe('Execute SQL Tool', () => {
     // Get the registered tool function
     let toolFunction: (params: ExecuteSQLTestParams) => Promise<unknown>;
 
-    (mockServer.registerTool as jest.Mock).mockImplementation((name: unknown, config: unknown, func: unknown) => {
+    (mockServer.registerTool).mockImplementation((name: unknown, config: unknown, func: unknown) => {
       toolFunction = func as (params: ExecuteSQLTestParams) => Promise<unknown>;
     });
 
@@ -110,7 +111,7 @@ describe('Execute SQL Tool', () => {
     // Get the registered tool function
     let toolFunction: (params: ExecuteSQLTestParams) => Promise<unknown>;
 
-    (mockServer.registerTool as jest.Mock).mockImplementation((name: unknown, config: unknown, func: unknown) => {
+    (mockServer.registerTool).mockImplementation((name: unknown, config: unknown, func: unknown) => {
       toolFunction = func as (params: ExecuteSQLTestParams) => Promise<unknown>;
     });
 
@@ -143,7 +144,7 @@ describe('Execute SQL Tool', () => {
     // Get the registered tool function
     let toolFunction: (params: ExecuteSQLTestParams) => Promise<unknown>;
 
-    (mockServer.registerTool as jest.Mock).mockImplementation((name: unknown, config: unknown, func: unknown) => {
+    (mockServer.registerTool).mockImplementation((name: unknown, config: unknown, func: unknown) => {
       toolFunction = func as (params: ExecuteSQLTestParams) => Promise<unknown>;
     });
 
@@ -169,12 +170,12 @@ describe('Execute SQL Tool', () => {
 
     mockClient.setConnected(true);
     mockClient.setExecuteQueryError(readOnlyError);
-    jest.spyOn(mockClient, 'isReadonly').mockReturnValue(true);
+    vi.spyOn(mockClient, 'isReadonly').mockReturnValue(true);
 
     // Get the registered tool function
     let toolFunction: (params: ExecuteSQLTestParams) => Promise<unknown>;
 
-    (mockServer.registerTool as jest.Mock).mockImplementation((name: unknown, config: unknown, func: unknown) => {
+    (mockServer.registerTool).mockImplementation((name: unknown, config: unknown, func: unknown) => {
       toolFunction = func as (params: ExecuteSQLTestParams) => Promise<unknown>;
     });
 
@@ -203,7 +204,7 @@ describe('Execute SQL Tool', () => {
     // Get the registered tool function
     let toolFunction: (params: ExecuteSQLTestParams) => Promise<unknown>;
 
-    (mockServer.registerTool as jest.Mock).mockImplementation((name: unknown, config: unknown, func: unknown) => {
+    (mockServer.registerTool).mockImplementation((name: unknown, config: unknown, func: unknown) => {
       toolFunction = func as (params: ExecuteSQLTestParams) => Promise<unknown>;
     });
 
@@ -230,16 +231,16 @@ describe('Execute SQL Tool', () => {
     mockClient.setConnected(true);
 
     // Mock the streaming function
-    const streamModule: typeof import('../../src/utils/postgres-stream') = jest.requireMock('../../src/utils/postgres-stream');
-    const mockStreamFunction = streamModule.streamPostgresQueryToFile;
+    // streamPostgresQueryToFile is auto-mocked via vi.mock at top of file
+    const mockStreamFunction = vi.mocked(streamPostgresQueryToFile);
     const mockStreamResult = { filePath: '/tmp/test-output.json', count: 2 };
 
-    (mockStreamFunction as jest.MockedFunction<typeof mockStreamFunction>).mockResolvedValue(mockStreamResult);
+    mockStreamFunction.mockResolvedValue(mockStreamResult);
 
     // Get the registered tool function
     let toolFunction: (params: ExecuteSQLTestParams) => Promise<unknown>;
 
-    (mockServer.registerTool as jest.Mock).mockImplementation((name: unknown, config: unknown, func: unknown) => {
+    (mockServer.registerTool).mockImplementation((name: unknown, config: unknown, func: unknown) => {
       toolFunction = func as (params: { query: string; params?: unknown[] }) => Promise<unknown>;
     });
 
@@ -285,7 +286,7 @@ describe('Execute SQL Tool', () => {
     expect(mockStreamFunction).toHaveBeenCalledWith(expect.any(Function), tempFilePath, 'jsonl');
 
     // Clean up
-    (mockStreamFunction as jest.MockedFunction<typeof mockStreamFunction>).mockClear();
+    mockStreamFunction.mockClear();
   });
 
   it('saves query results to file with jsonl format by default when saveToFile is true', async () => {
@@ -298,16 +299,16 @@ describe('Execute SQL Tool', () => {
     mockClient.setConnected(true);
 
     // Mock the streaming function
-    const streamModule: typeof import('../../src/utils/postgres-stream') = jest.requireMock('../../src/utils/postgres-stream');
-    const mockStreamFunction = streamModule.streamPostgresQueryToFile;
+    // streamPostgresQueryToFile is auto-mocked via vi.mock at top of file
+    const mockStreamFunction = vi.mocked(streamPostgresQueryToFile);
     const mockStreamResult = { filePath: '/tmp/test-output.jsonl', count: 1 };
 
-    (mockStreamFunction as jest.MockedFunction<typeof mockStreamFunction>).mockResolvedValue(mockStreamResult);
+    mockStreamFunction.mockResolvedValue(mockStreamResult);
 
     // Get the registered tool function
     let toolFunction: (params: ExecuteSQLTestParams) => Promise<unknown>;
 
-    (mockServer.registerTool as jest.Mock).mockImplementation((name: unknown, config: unknown, func: unknown) => {
+    (mockServer.registerTool).mockImplementation((name: unknown, config: unknown, func: unknown) => {
       toolFunction = func as (params: { query: string; params?: unknown[] }) => Promise<unknown>;
     });
 
@@ -354,7 +355,7 @@ describe('Execute SQL Tool', () => {
     expect(mockStreamFunction).toHaveBeenCalledWith(expect.any(Function), tempFilePath, 'jsonl');
 
     // Clean up
-    (mockStreamFunction as jest.MockedFunction<typeof mockStreamFunction>).mockClear();
+    mockStreamFunction.mockClear();
   });
 
   it('saves query results to file with json format when specified', async () => {
@@ -367,16 +368,16 @@ describe('Execute SQL Tool', () => {
     mockClient.setConnected(true);
 
     // Mock the streaming function
-    const streamModule: typeof import('../../src/utils/postgres-stream') = jest.requireMock('../../src/utils/postgres-stream');
-    const mockStreamFunction = streamModule.streamPostgresQueryToFile;
+    // streamPostgresQueryToFile is auto-mocked via vi.mock at top of file
+    const mockStreamFunction = vi.mocked(streamPostgresQueryToFile);
     const mockStreamResult = { filePath: '/tmp/test-output.json', count: 1 };
 
-    (mockStreamFunction as jest.MockedFunction<typeof mockStreamFunction>).mockResolvedValue(mockStreamResult);
+    mockStreamFunction.mockResolvedValue(mockStreamResult);
 
     // Get the registered tool function
     let toolFunction: (params: ExecuteSQLTestParams) => Promise<unknown>;
 
-    (mockServer.registerTool as jest.Mock).mockImplementation((name: unknown, config: unknown, func: unknown) => {
+    (mockServer.registerTool).mockImplementation((name: unknown, config: unknown, func: unknown) => {
       toolFunction = func as (params: { query: string; params?: unknown[] }) => Promise<unknown>;
     });
 
@@ -423,7 +424,74 @@ describe('Execute SQL Tool', () => {
     expect(mockStreamFunction).toHaveBeenCalledWith(expect.any(Function), tempFilePath, 'json');
 
     // Clean up
-    (mockStreamFunction as jest.MockedFunction<typeof mockStreamFunction>).mockClear();
+    mockStreamFunction.mockClear();
+  });
+
+  it('passes plain object params through unchanged for JSON/JSONB (L10)', async () => {
+    mockClient.setExecuteQueryResult([{ id: 1 }]);
+    mockClient.setConnected(true);
+
+    let toolFunction: (params: ExecuteSQLTestParams) => Promise<unknown>;
+
+    (mockServer.registerTool).mockImplementation((_name: unknown, _config: unknown, func: unknown) => {
+      toolFunction = func as (p: ExecuteSQLTestParams) => Promise<unknown>;
+    });
+
+    registerExecuteSQLTool(mockServer as unknown as McpServer, mockClient);
+
+    const jsonParam = { foo: 'bar', nested: { ok: true } };
+
+    await toolFunction!({
+      query: 'SELECT $1::jsonb',
+      params: [jsonParam],
+    });
+
+    expect(mockClient.executeQuery).toHaveBeenCalledWith('SELECT $1::jsonb', [jsonParam]);
+  });
+
+  it('passes array params through unchanged for ARRAY (L10)', async () => {
+    mockClient.setExecuteQueryResult([{ id: 1 }]);
+    mockClient.setConnected(true);
+
+    let toolFunction: (params: ExecuteSQLTestParams) => Promise<unknown>;
+
+    (mockServer.registerTool).mockImplementation((_name: unknown, _config: unknown, func: unknown) => {
+      toolFunction = func as (p: ExecuteSQLTestParams) => Promise<unknown>;
+    });
+
+    registerExecuteSQLTool(mockServer as unknown as McpServer, mockClient);
+
+    const arrayParam = [1, 2, 3];
+
+    await toolFunction!({
+      query: 'SELECT * FROM users WHERE id = ANY($1)',
+      params: [arrayParam],
+    });
+
+    expect(mockClient.executeQuery).toHaveBeenCalledWith('SELECT * FROM users WHERE id = ANY($1)', [arrayParam]);
+  });
+
+  it('rejects non-serializable params (L10)', async () => {
+    mockClient.setConnected(true);
+
+    let toolFunction: (params: ExecuteSQLTestParams) => Promise<unknown>;
+
+    (mockServer.registerTool).mockImplementation((_name: unknown, _config: unknown, func: unknown) => {
+      toolFunction = func as (p: ExecuteSQLTestParams) => Promise<unknown>;
+    });
+
+    registerExecuteSQLTool(mockServer as unknown as McpServer, mockClient);
+
+    const result = (await toolFunction!({
+      query: 'SELECT $1',
+      params: [() => 42],
+    })) as {
+      isError: boolean;
+      content: Array<{ text: string }>;
+    };
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0]?.text).toContain('not serializable');
   });
 
   it('handles file operation errors during saveToFile', async () => {
@@ -436,27 +504,28 @@ describe('Execute SQL Tool', () => {
     mockClient.setConnected(true);
 
     // Mock the streaming function to throw an error
-    const streamModule: typeof import('../../src/utils/postgres-stream') = jest.requireMock('../../src/utils/postgres-stream');
-    const mockStreamFunction = streamModule.streamPostgresQueryToFile;
+    // streamPostgresQueryToFile is auto-mocked via vi.mock at top of file
+    const mockStreamFunction = vi.mocked(streamPostgresQueryToFile);
     const error = new Error('Permission denied');
 
-    (mockStreamFunction as jest.MockedFunction<typeof mockStreamFunction>).mockRejectedValue(error);
+    mockStreamFunction.mockRejectedValue(error);
 
     // Get the registered tool function
     let toolFunction: (params: ExecuteSQLTestParams) => Promise<unknown>;
 
-    (mockServer.registerTool as jest.Mock).mockImplementation((name: unknown, config: unknown, func: unknown) => {
+    (mockServer.registerTool).mockImplementation((name: unknown, config: unknown, func: unknown) => {
       toolFunction = func as (params: { query: string; params?: unknown[] }) => Promise<unknown>;
     });
 
     // Register the tool function
     registerExecuteSQLTool(mockServer as unknown as McpServer, mockClient);
 
-    // Call the tool function with saveToFile
+    // Call the tool function with saveToFile (use a tmpdir-internal path to
+    // pass safe-path validation; the mocked stream function will then throw)
     const result = await toolFunction!({
       query: 'SELECT * FROM users',
       saveToFile: true,
-      filePath: '/invalid/path/file.json',
+      filePath: join(tmpdir(), 'execute-sql-error-test.json'),
     });
 
     // Should return an error since streaming function failed
@@ -473,6 +542,6 @@ describe('Execute SQL Tool', () => {
     );
 
     // Clean up
-    (mockStreamFunction as jest.MockedFunction<typeof mockStreamFunction>).mockClear();
+    mockStreamFunction.mockClear();
   });
 });

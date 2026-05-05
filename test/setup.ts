@@ -1,5 +1,5 @@
 // Setup file for Jest tests
-// import { jest } from '@jest/globals';
+// import { jest } from 'vitest';
 
 // Mock environment variables if needed
 process.env['POSTGRES_MCP_CONNECTION_STRING'] = 'postgresql://test:test@localhost:5432/test';

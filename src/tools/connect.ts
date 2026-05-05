@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { PostgreSQLClient } from '../postgres-client.js';
+import type { PostgreSQLClient } from '../postgres-client.js';
 import { toolSuccess, toolError } from '../utils/tool-response.js';
 
 const connectSchema = z.object({
@@ -12,22 +12,25 @@ const connectSchema = z.object({
 
 export type ConnectParams = z.infer<typeof connectSchema>;
 
-// Export the registration function for the server
-// The client parameter is required to match the registration function signature used by other tools
-export function registerConnectTool(server: McpServer, _client: PostgreSQLClient): void {
+export function registerConnectTool(server: McpServer, client: PostgreSQLClient): void {
   server.registerTool(
     'connect',
     {
       title: 'Connect to PostgreSQL',
-      description: 'Establish connection to PostgreSQL using connection string from environment variable POSTGRES_MCP_CONNECTION_STRING. Call service-info first to check current connection status.',
+      description: [
+        'Establish connection to PostgreSQL using the connection string from the POSTGRES_MCP_CONNECTION_STRING environment variable.',
+        'Use for: opening a session before running queries; reconnecting with different pool/timeout settings.',
+        'Call `service-info` first to check current connection status — if already connected to the same connection string, this tool short-circuits and returns success without reopening the pool.',
+        'Limitations: the connection string itself cannot be passed as a parameter (it is read from the environment). Switching readonly mode at runtime requires reconnecting.',
+      ].join(' '),
       inputSchema: connectSchema.shape,
       annotations: {
-        readOnlyHint: true,
+        // connect mutates server state (opens a pooled TCP connection,
+        // stores credentials), so it is not a read-only operation.
+        readOnlyHint: false,
       },
     },
     async (params: ConnectParams, _extra) => {
-      const postgresClient = PostgreSQLClient.getInstance();
-
       try {
         // Only use the connection string from environment variable
         const connectionString = process.env['POSTGRES_MCP_CONNECTION_STRING'];
@@ -37,9 +40,9 @@ export function registerConnectTool(server: McpServer, _client: PostgreSQLClient
         }
 
         // Check if we're already connected to the same connection string
-        const currentConnectionInfo = postgresClient.getConnectionInfo();
+        const currentConnectionInfo = client.getConnectionInfo();
 
-        if (currentConnectionInfo.isConnected && postgresClient.getConnectionString() === connectionString) {
+        if (currentConnectionInfo.isConnected && client.getConnectionString() === connectionString) {
           const response = {
             success: true,
             message: 'Already connected to PostgreSQL with the same connection string',
@@ -56,7 +59,7 @@ export function registerConnectTool(server: McpServer, _client: PostgreSQLClient
         const connectionTimeoutMillis = params.connectionTimeoutMillis ?? 10000; // 10 seconds
 
         // If connection string is different or we're not connected, connect
-        await postgresClient.connect(readonlyMode, poolSize, idleTimeoutMillis, connectionTimeoutMillis);
+        await client.connect(readonlyMode, poolSize, idleTimeoutMillis, connectionTimeoutMillis);
 
         const response = {
           success: true,

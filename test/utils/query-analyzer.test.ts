@@ -1,11 +1,8 @@
-import { describe, it, expect } from '@jest/globals';
+import { describe, it, expect } from 'vitest';
 import { supportsCursor } from '../../src/utils/query-analyzer.js';
 
-// Adding test timeout settings that Jest should respect
+// testTimeout is configured globally in vitest.config.ts (30000ms)
 describe('Query Analyzer - supportsCursor', () => {
-  // Increase timeout for individual tests to accommodate parser initialization
-  jest.setTimeout(30000);
-
   it('should return true for SELECT statements', async () => {
     const query = 'SELECT * FROM users';
     const result = await supportsCursor(query);

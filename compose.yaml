@@ -1,0 +1,24 @@
+# Integration test fixture. Spin up via:
+#   npm run test:integration:up
+# and tear down via:
+#   npm run test:integration:down
+#
+# Tests connect via POSTGRES_MCP_CONNECTION_STRING:
+#   postgresql://test:test@localhost:55432/test
+services:
+  postgres:
+    image: docker.io/library/postgres:18.3-alpine
+    container_name: postgres-mcp-it
+    environment:
+      POSTGRES_USER: test
+      POSTGRES_PASSWORD: test
+      POSTGRES_DB: test
+    ports:
+      - "127.0.0.1:55432:5432"
+    tmpfs:
+      - /var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U test -d test"]
+      interval: 1s
+      timeout: 3s
+      retries: 30
