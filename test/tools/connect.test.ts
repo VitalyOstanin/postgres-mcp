@@ -21,6 +21,12 @@ describe('Connect Tool', () => {
     registerTool: Mock;
   }
 
+  const defaults = {
+    readonlyMode: true,
+    poolSize: 1,
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 10000,
+  };
   let mockServer: MockServer;
   let mockClient: ReturnType<typeof getMockClient>;
   let originalEnv: NodeJS.ProcessEnv;
@@ -48,7 +54,7 @@ describe('Connect Tool', () => {
 
   it('registers the connect tool correctly', () => {
     // Call the registration function
-    registerConnectTool(mockServer as unknown as McpServer, mockClient);
+    registerConnectTool(mockServer as unknown as McpServer, mockClient, defaults);
 
     // Verify that registerTool was called with correct parameters
     expect(mockServer.registerTool).toHaveBeenCalledWith(
@@ -78,7 +84,7 @@ describe('Connect Tool', () => {
     });
 
     // Register the tool function
-    registerConnectTool(mockServer as unknown as McpServer, instance);
+    registerConnectTool(mockServer as unknown as McpServer, instance, defaults);
 
     // Call the tool function
     const result = await toolFunction!({}, {});
@@ -118,7 +124,7 @@ describe('Connect Tool', () => {
     });
 
     // Register the tool function
-    registerConnectTool(mockServer as unknown as McpServer, instance);
+    registerConnectTool(mockServer as unknown as McpServer, instance, defaults);
 
     // Call the tool function
     const result = await toolFunction!({}, {});
@@ -150,7 +156,7 @@ describe('Connect Tool', () => {
     });
 
     // Register the tool function
-    registerConnectTool(mockServer as unknown as McpServer, instance);
+    registerConnectTool(mockServer as unknown as McpServer, instance, defaults);
 
     // Call the tool function
     const result = await toolFunction!({}, {});
@@ -179,7 +185,7 @@ describe('Connect Tool', () => {
     });
 
     // Register the tool to get the function
-    registerConnectTool(mockServer as unknown as McpServer, mockInstance);
+    registerConnectTool(mockServer as unknown as McpServer, mockInstance, defaults);
 
     // Call the tool function
     const result = await toolFunction!({}, {});

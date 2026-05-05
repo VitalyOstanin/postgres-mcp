@@ -13,8 +13,8 @@ class MockPostgreSQLClientClass {
   private mockIdleTimeoutMillis: number = 30000;
   private mockConnectionTimeoutMillis: number = 10000;
 
-  constructor() {
-    // Initialize mock values
+  constructor(initialReadonlyMode: boolean = false) {
+    this.mockReadonlyMode = initialReadonlyMode;
     this.mockPool = { connect: () => Promise.resolve({ query: (_query: string, _params?: unknown[]) => Promise.resolve({ rows: [] }), release() {} }) };
   }
 
@@ -36,10 +36,6 @@ class MockPostgreSQLClientClass {
     this.mockConnectionString = null;
     this.mockDisconnectReason = reason;
     this.mockConnectionError = null;
-  });
-
-  setReadonlyMode = vi.fn().mockImplementation((readonly: boolean): void => {
-    this.mockReadonlyMode = readonly;
   });
 
   isReadonly = vi.fn().mockImplementation((): boolean => {
@@ -64,6 +60,23 @@ class MockPostgreSQLClientClass {
     }
 
     return this.executeQueryResult as T[];
+  });
+
+  streamQuery = vi.fn().mockImplementation(async (
+    _query: string,
+    _params: unknown[] | undefined,
+    onRow: (row: Record<string, unknown>) => void | Promise<void>,
+  ): Promise<void> => {
+    if (this.executeQueryError) {
+      throw this.executeQueryError;
+    }
+    for (const row of this.executeQueryResult) {
+      await onRow(row);
+    }
+  });
+
+  whenLifecycleSettled = vi.fn().mockImplementation(async (): Promise<void> => {
+    return Promise.resolve();
   });
 
   isConnectedToPostgreSQL = vi.fn().mockImplementation((): boolean => {

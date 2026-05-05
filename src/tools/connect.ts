@@ -12,7 +12,14 @@ const connectSchema = z.object({
 
 export type ConnectParams = z.infer<typeof connectSchema>;
 
-export function registerConnectTool(server: McpServer, client: PostgreSQLClient): void {
+export interface ConnectToolDefaults {
+  readonlyMode: boolean;
+  poolSize: number;
+  idleTimeoutMillis: number;
+  connectionTimeoutMillis: number;
+}
+
+export function registerConnectTool(server: McpServer, client: PostgreSQLClient, defaults: ConnectToolDefaults): void {
   server.registerTool(
     'connect',
     {
@@ -21,7 +28,7 @@ export function registerConnectTool(server: McpServer, client: PostgreSQLClient)
         'Establish connection to PostgreSQL using the connection string from the POSTGRES_MCP_CONNECTION_STRING environment variable.',
         'Use for: opening a session before running queries; reconnecting with different pool/timeout settings.',
         'Call `service-info` first to check current connection status — if already connected to the same connection string, this tool short-circuits and returns success without reopening the pool.',
-        'Limitations: the connection string itself cannot be passed as a parameter (it is read from the environment). Switching readonly mode at runtime requires reconnecting.',
+        'Limitations: the connection string itself cannot be passed as a parameter (it is read from the environment). Switching readonly mode at runtime requires reconnecting. Omitted parameters fall back to the values supplied via the server CLI flags (--read-only, --pool-size, --idle-timeout, --connection-timeout), not to hard-coded defaults.',
       ].join(' '),
       inputSchema: connectSchema.shape,
       annotations: {
@@ -32,14 +39,12 @@ export function registerConnectTool(server: McpServer, client: PostgreSQLClient)
     },
     async (params: ConnectParams, _extra) => {
       try {
-        // Only use the connection string from environment variable
         const connectionString = process.env['POSTGRES_MCP_CONNECTION_STRING'];
 
         if (!connectionString) {
           return toolError(new Error('Connection string is required. Please set POSTGRES_MCP_CONNECTION_STRING environment variable.'));
         }
 
-        // Check if we're already connected to the same connection string
         const currentConnectionInfo = client.getConnectionInfo();
 
         if (currentConnectionInfo.isConnected && client.getConnectionString() === connectionString) {
@@ -52,13 +57,14 @@ export function registerConnectTool(server: McpServer, client: PostgreSQLClient)
           return toolSuccess(response);
         }
 
-        // Use default values if not provided - these are already handled by Zod
-        const readonlyMode = params.readonlyMode ?? true;
-        const poolSize = params.poolSize ?? 1;
-        const idleTimeoutMillis = params.idleTimeoutMillis ?? 30000; // 30 seconds
-        const connectionTimeoutMillis = params.connectionTimeoutMillis ?? 10000; // 10 seconds
+        // Inherit from server-level CLI defaults so that an operator who
+        // launched with `--pool-size=10` doesn't silently fall back to 1
+        // when the MCP client calls `connect` without arguments.
+        const readonlyMode = params.readonlyMode ?? defaults.readonlyMode;
+        const poolSize = params.poolSize ?? defaults.poolSize;
+        const idleTimeoutMillis = params.idleTimeoutMillis ?? defaults.idleTimeoutMillis;
+        const connectionTimeoutMillis = params.connectionTimeoutMillis ?? defaults.connectionTimeoutMillis;
 
-        // If connection string is different or we're not connected, connect
         await client.connect(readonlyMode, poolSize, idleTimeoutMillis, connectionTimeoutMillis);
 
         const response = {

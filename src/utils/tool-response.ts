@@ -18,7 +18,7 @@ export function toolSuccess<T = unknown>(payload: T): CallToolResult {
         text: JSON.stringify(body),
       },
     ],
-    structuredContent: body as Record<string, unknown>,
+    structuredContent: body,
   };
 }
 

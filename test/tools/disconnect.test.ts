@@ -126,7 +126,8 @@ describe('Disconnect Tool', () => {
     });
 
     // Register the tool to get the function
-    registerDisconnectTool(mockServer as unknown as McpServer, errorClient);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    registerDisconnectTool(mockServer as unknown as McpServer, errorClient as any);
 
     // Call the tool function
     const result = await toolFunction!();

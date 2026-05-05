@@ -14,3 +14,7 @@ coverage/
 tmp/
 temp/
 .claude/
+coverage-integration
+
+# review reports may contain non-public project context — keep local only
+docs/

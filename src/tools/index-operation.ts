@@ -8,13 +8,16 @@ const indexOperationSchema = z.object({
   operation: z.enum(['create', 'drop', 'list']).describe('Operation to perform: create, drop or list indexes'),
   schema: z.string().optional().default('public').describe('Schema name where the table is located'),
 
-  // Required for create/drop; for list, optional — narrows results to a single
-  // table. `tableName` is kept as a deprecated alias and still accepted.
-  table: z.string().optional().describe('Table name. Required for create and drop; for list, narrows the result to a specific table.'),
+  // Required for create; for drop, optional — when provided, the tool verifies
+  // the named index actually belongs to that table before issuing DROP. For
+  // list, narrows results to a single table. `tableName` is kept as a
+  // deprecated alias and still accepted.
+  table: z.string().optional().describe('Table name. Required for create; for drop, optional — when set, the tool verifies the index belongs to this table before dropping. For list, narrows the result to a specific table.'),
   name: z.string().optional().describe('Index name (required for create/drop)'),
   columns: z.array(z.string()).optional().describe('Array of column names to include in the index (required for create)'),
   unique: z.boolean().optional().default(false).describe('Whether to create a unique index'),
   ifNotExists: z.boolean().optional().default(false).describe('Add IF NOT EXISTS clause to prevent errors if index already exists (for create)'),
+  concurrently: z.boolean().optional().default(false).describe('Use CONCURRENTLY for create/drop — does not block reads/writes on the table, but takes longer and cannot run inside a transaction'),
 
   // Parameters for DROP operation
   ifExists: z.boolean().optional().default(false).describe('Add IF EXISTS clause to prevent errors if index does not exist (for drop)'),
@@ -27,6 +30,18 @@ const indexOperationSchema = z.object({
 
 export type IndexOperationParams = z.infer<typeof indexOperationSchema>;
 
+// One row of the `list` result. The "single-table" branch returns one row per
+// indexed column (`column_name`); the "schema-wide" branch aggregates columns
+// into the `columns` field. Both fields are typed as optional so a single
+// interface fits both shapes.
+interface IndexRow {
+  table_name: string;
+  index_name: string;
+  is_unique: boolean;
+  column_name?: string;
+  columns?: string;
+}
+
 export function registerIndexOperationTool(server: McpServer, client: PostgreSQLClient): void {
   server.registerTool(
     'index-operation',
@@ -35,10 +50,10 @@ export function registerIndexOperationTool(server: McpServer, client: PostgreSQL
       description: [
         'Create, drop, or list indexes on PostgreSQL tables.',
         'Use for: adding a new (optionally unique) index on one or more columns; dropping an existing index; auditing the indexes that already exist on a table or in a schema.',
-        'Operation `create`: requires `table`, `name`, `columns`. Optional: `unique`, `ifNotExists`. Identifiers are escaped server-side.',
-        'Operation `drop`: requires `table` and `name`. Optional: `ifExists`.',
+        'Operation `create`: requires `table`, `name`, `columns`. Optional: `unique`, `ifNotExists`, `concurrently`. Identifiers are escaped server-side.',
+        'Operation `drop`: requires `name`. Optional: `table` (when set, the tool verifies that the index belongs to the given table before dropping), `ifExists`, `concurrently`.',
         'Operation `list`: optional `table` (or deprecated `tableName`) to narrow results; supports `limit`/`offset` pagination (default 100, max 1000).',
-        'Limitations: in read-only mode `create` and `drop` are rejected — only `list` is permitted. Concurrent index creation (`CONCURRENTLY`) is not supported by this tool yet.',
+        'Limitations: in read-only mode `create` and `drop` are rejected — only `list` is permitted. `concurrently` cannot be combined with `unique` for CREATE INDEX (PostgreSQL constraint).',
       ].join(' '),
       inputSchema: indexOperationSchema.shape,
     },
@@ -57,16 +72,25 @@ export function registerIndexOperationTool(server: McpServer, client: PostgreSQL
       try {
         switch (operation) {
           case 'create': {
-            const { table, name, columns, unique, ifNotExists } = params;
+            const { table, name, columns, unique, ifNotExists, concurrently } = params;
 
             if (!table || !name || !columns || columns.length === 0) {
               return toolError(new Error('For create operation: table, name, and columns are required'));
             }
 
+            // PostgreSQL rejects CREATE UNIQUE INDEX CONCURRENTLY only in
+            // older versions; modern PG (>= 9.2) supports it. Still, the
+            // semantic is subtle (the index isn't valid until the second
+            // pass), so flag the combination as not supported by this tool.
+            if (concurrently && unique) {
+              return toolError(new Error('concurrently=true cannot be combined with unique=true in this tool'));
+            }
+
             const uniqueClause = unique ? 'UNIQUE' : '';
+            const concurrentlyClause = concurrently ? 'CONCURRENTLY' : '';
             const ifNotExistsClause = ifNotExists ? 'IF NOT EXISTS' : '';
             const columnsStr = columns.map(col => quoteIdent(col)).join(', ');
-            const query = `CREATE ${uniqueClause} INDEX ${ifNotExistsClause} ${quoteIdent(name)} ON ${quoteQualified(schema, table)} (${columnsStr})`;
+            const query = `CREATE ${uniqueClause} INDEX ${concurrentlyClause} ${ifNotExistsClause} ${quoteIdent(name)} ON ${quoteQualified(schema, table)} (${columnsStr})`;
 
             await client.executeQuery<Record<string, unknown>>(query);
 
@@ -77,28 +101,71 @@ export function registerIndexOperationTool(server: McpServer, client: PostgreSQL
               name,
               columns,
               unique,
+              concurrently,
               message: `Index "${name}" created successfully on table "${schema}"."${table}"`,
             });
           }
 
           case 'drop': {
-            const { table, name, ifExists } = params;
+            const { table, name, ifExists, concurrently } = params;
 
-            if (!table || !name) {
-              return toolError(new Error('For drop operation: table and name are required'));
+            if (!name) {
+              return toolError(new Error('For drop operation: name is required'));
             }
 
+            // Look the index up by (schema, name). If `table` was provided,
+            // verify that the index actually belongs to that table — otherwise
+            // we'd happily drop an unrelated index and lie in the response.
+            const lookup = await client.executeQuery<{ table_name: string }>(
+              `SELECT t.relname AS table_name
+                 FROM pg_class i
+                 JOIN pg_namespace n ON n.oid = i.relnamespace
+                 JOIN pg_index ix ON ix.indexrelid = i.oid
+                 JOIN pg_class t ON t.oid = ix.indrelid
+                WHERE i.relkind IN ('i', 'I')
+                  AND n.nspname = $1
+                  AND i.relname = $2`,
+              [schema, name],
+            );
+
+            if (lookup.length === 0) {
+              if (ifExists) {
+                return toolSuccess({
+                  operation: 'drop',
+                  schema,
+                  table,
+                  name,
+                  dropped: false,
+                  message: `Index "${schema}"."${name}" does not exist; skipped (ifExists=true)`,
+                });
+              }
+
+              return toolError(new Error(`Index "${schema}"."${name}" does not exist`));
+            }
+
+            const actualTable = lookup[0]?.table_name;
+
+            if (table && actualTable !== table) {
+              return toolError(new Error(
+                `Index "${schema}"."${name}" belongs to table "${actualTable}", not "${table}". ` +
+                'Re-issue the drop with the correct table, or omit `table` to skip the check.',
+              ));
+            }
+
+            const concurrentlyClause = concurrently ? 'CONCURRENTLY' : '';
             const ifExistsClause = ifExists ? 'IF EXISTS' : '';
-            const query = `DROP INDEX ${ifExistsClause} ${quoteQualified(schema, name)}`;
+            const query = `DROP INDEX ${concurrentlyClause} ${ifExistsClause} ${quoteQualified(schema, name)}`;
 
             await client.executeQuery<Record<string, unknown>>(query);
 
             return toolSuccess({
               operation: 'drop',
               schema,
-              table,
+              table: actualTable,
               name,
-              message: `Index "${name}" dropped successfully from table "${schema}"."${table}"`,
+              concurrently,
+              dropped: true,
+              message: `Index "${name}" dropped successfully from table "${schema}"."${actualTable}"`,
             });
           }
 
@@ -111,48 +178,43 @@ export function registerIndexOperationTool(server: McpServer, client: PostgreSQL
             let baseParams: Array<string | number>;
 
             if (searchTable) {
-              // List indexes for a specific table
+              // List indexes for a specific table — emit one row per indexed
+              // column so the caller can see column-level ordering.
               baseQuery = `
                 SELECT
                   t.relname as table_name,
                   i.relname as index_name,
                   a.attname as column_name,
                   ix.indisunique as is_unique
-                FROM pg_class t,
-                     pg_class i,
-                     pg_index ix,
-                     pg_attribute a,
-                     pg_namespace n
-                WHERE t.oid = ix.indrelid
-                  AND i.oid = ix.indexrelid
-                  AND a.attrelid = t.oid
+                FROM pg_index ix
+                INNER JOIN pg_class t ON t.oid = ix.indrelid
+                INNER JOIN pg_class i ON i.oid = ix.indexrelid
+                INNER JOIN pg_namespace n ON n.oid = t.relnamespace
+                INNER JOIN pg_attribute a
+                  ON a.attrelid = t.oid
                   AND a.attnum = ANY(ix.indkey)
-                  AND t.relkind = 'r'
-                  AND n.oid = t.relnamespace
+                WHERE t.relkind = 'r'
                   AND t.relname = $1
                   AND n.nspname = $2
                 ORDER BY t.relname, i.relname, a.attnum
               `;
               baseParams = [searchTable, schema];
             } else {
-              // List all indexes in the schema
+              // List all indexes in the schema, aggregated per index.
               baseQuery = `
                 SELECT
                   t.relname as table_name,
                   i.relname as index_name,
                   string_agg(a.attname, ', ' ORDER BY a.attnum) as columns,
                   ix.indisunique as is_unique
-                FROM pg_class t,
-                     pg_class i,
-                     pg_index ix,
-                     pg_attribute a,
-                     pg_namespace n
-                WHERE t.oid = ix.indrelid
-                  AND i.oid = ix.indexrelid
-                  AND a.attrelid = t.oid
+                FROM pg_index ix
+                INNER JOIN pg_class t ON t.oid = ix.indrelid
+                INNER JOIN pg_class i ON i.oid = ix.indexrelid
+                INNER JOIN pg_namespace n ON n.oid = t.relnamespace
+                INNER JOIN pg_attribute a
+                  ON a.attrelid = t.oid
                   AND a.attnum = ANY(ix.indkey)
-                  AND t.relkind = 'r'
-                  AND n.oid = t.relnamespace
+                WHERE t.relkind = 'r'
                   AND n.nspname = $1
                 GROUP BY t.relname, i.relname, ix.indisunique
                 ORDER BY t.relname, i.relname
@@ -163,7 +225,7 @@ export function registerIndexOperationTool(server: McpServer, client: PostgreSQL
             const limitParamIdx = baseParams.length + 1;
             const offsetParamIdx = baseParams.length + 2;
             const query = `${baseQuery} LIMIT $${limitParamIdx} OFFSET $${offsetParamIdx}`;
-            const indexes = await client.executeQuery<Record<string, unknown>>(
+            const indexes = await client.executeQuery<IndexRow>(
               query,
               [...baseParams, limit + 1, offset],
             );

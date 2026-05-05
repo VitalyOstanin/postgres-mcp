@@ -33,12 +33,14 @@ async function main() {
       default: 10000, // 10 seconds
     })
     .parseAsync();
-  const readOnlyMode = argv['read-only'];
-  const poolSize = argv['pool-size'];
-  const idleTimeout = argv['idle-timeout'];
-  const connectionTimeout = argv['connection-timeout'];
   const transport = new StdioServerTransport();
-  const server = new PostgreSQLServer(argv['auto-connect'], readOnlyMode, poolSize, idleTimeout, connectionTimeout);
+  const server = new PostgreSQLServer({
+    autoConnect: argv['auto-connect'],
+    readonlyMode: argv['read-only'],
+    poolSize: argv['pool-size'],
+    idleTimeout: argv['idle-timeout'],
+    connectionTimeout: argv['connection-timeout'],
+  });
   // Wire graceful shutdown: close the pool when the host sends SIGINT/SIGTERM
   // so PostgreSQL does not see abrupt connection drops on shutdown.
   let shuttingDown = false;
@@ -48,12 +50,20 @@ async function main() {
     }
     shuttingDown = true;
     console.error(`Received ${signal}, shutting down PostgreSQL MCP server...`);
-    server.shutdown().finally(() => { process.exit(0); });
+    server.shutdown()
+      .then(() => { process.exit(0); })
+      .catch((error: unknown) => {
+        console.error('Error during shutdown:', error);
+        process.exit(1);
+      });
   };
 
   process.on('SIGINT', () => { shutdown('SIGINT'); });
   process.on('SIGTERM', () => { shutdown('SIGTERM'); });
 
+  // Run auto-connect (if requested) BEFORE wiring up the MCP transport so the
+  // first tool call doesn't race with database initialisation.
+  await server.init();
   await server.connect(transport);
 }
 

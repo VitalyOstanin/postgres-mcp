@@ -37,7 +37,7 @@ export function registerDisconnectTool(server: McpServer, client: PostgreSQLClie
           });
         }
 
-        await client.disconnect();
+        await client.disconnect('client requested disconnect via MCP tool');
 
         return toolSuccess({
           success: true,

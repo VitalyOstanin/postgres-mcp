@@ -13,11 +13,27 @@ import { registerListObjectsTool } from "./tools/list-objects.js";
 import { registerShowObjectTool } from "./tools/show-object.js";
 import { registerIndexOperationTool } from "./tools/index-operation.js";
 
+export interface PostgreSQLServerOptions {
+  autoConnect?: boolean;
+  readonlyMode?: boolean;
+  poolSize?: number;
+  idleTimeout?: number;
+  connectionTimeout?: number;
+}
+
 export class PostgreSQLServer {
   private readonly server: McpServer;
   private readonly postgresClient: PostgreSQLClient;
+  private readonly options: Required<PostgreSQLServerOptions>;
 
-  constructor(autoConnect: boolean = false, readonlyMode: boolean = true, poolSize: number = 1, idleTimeout: number = 30000, connectionTimeout: number = 10000) {
+  constructor(options: PostgreSQLServerOptions = {}) {
+    this.options = {
+      autoConnect: options.autoConnect ?? false,
+      readonlyMode: options.readonlyMode ?? true,
+      poolSize: options.poolSize ?? 1,
+      idleTimeout: options.idleTimeout ?? 30000,
+      connectionTimeout: options.connectionTimeout ?? 10000,
+    };
     this.server = new McpServer(
       {
         name: "postgres-mcp",
@@ -33,17 +49,18 @@ export class PostgreSQLServer {
       },
     );
 
-    // Load configuration and initialize timezone
     const config = loadConfig();
 
     initializeTimezone(config.timezone);
 
-    this.postgresClient = new PostgreSQLClient();
-    // Set the readonly mode immediately when creating the server
-    this.postgresClient.setReadonlyMode(readonlyMode);
+    this.postgresClient = new PostgreSQLClient(this.options.readonlyMode);
 
-    // Import and register the connect tool
-    registerConnectTool(this.server, this.postgresClient);
+    registerConnectTool(this.server, this.postgresClient, {
+      readonlyMode: this.options.readonlyMode,
+      poolSize: this.options.poolSize,
+      idleTimeoutMillis: this.options.idleTimeout,
+      connectionTimeoutMillis: this.options.connectionTimeout,
+    });
     registerDisconnectTool(this.server, this.postgresClient);
     registerListSchemasTool(this.server, this.postgresClient);
     registerExecuteSQLTool(this.server, this.postgresClient);
@@ -51,22 +68,38 @@ export class PostgreSQLServer {
     registerShowObjectTool(this.server, this.postgresClient);
     registerIndexOperationTool(this.server, this.postgresClient);
     registerServiceInfoTool(this.server, this.postgresClient);
+  }
 
-    // If auto-connect option is enabled, connect to PostgreSQL on startup
-    if (autoConnect) {
-      const connectionString = process.env['POSTGRES_MCP_CONNECTION_STRING'];
+  /**
+   * Run any startup work (notably, auto-connect to PostgreSQL) before the
+   * MCP transport is wired up. Throws on misconfiguration or failed
+   * auto-connect so the surrounding entry point can exit cleanly instead of
+   * accepting tool calls against a half-initialised server.
+   */
+  async init(): Promise<void> {
+    if (!this.options.autoConnect) {
+      return;
+    }
 
-      if (connectionString) {
-        // Connect in readonly mode if it's enabled
-        this.postgresClient.connect(readonlyMode, poolSize, idleTimeout, connectionTimeout).catch(error => {
-          const message = error instanceof Error ? error.message : String(error);
+    const connectionString = process.env['POSTGRES_MCP_CONNECTION_STRING'];
 
-          console.error("Failed to auto-connect to PostgreSQL:", redactConnectionString(message));
-          // Terminate server due to connection failure
-          console.error("Terminating server due to connection failure");
-          process.exit(1);
-        });
-      }
+    if (!connectionString) {
+      throw new Error(
+        '--auto-connect was requested but POSTGRES_MCP_CONNECTION_STRING is not set. Set the variable or omit --auto-connect to use the connect tool manually.',
+      );
+    }
+
+    try {
+      await this.postgresClient.connect(
+        this.options.readonlyMode,
+        this.options.poolSize,
+        this.options.idleTimeout,
+        this.options.connectionTimeout,
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+
+      throw new Error(`Failed to auto-connect to PostgreSQL: ${redactConnectionString(message)}`, { cause: error });
     }
   }
 
@@ -84,7 +117,10 @@ export class PostgreSQLServer {
         await this.postgresClient.disconnect('server shutdown');
       }
     } catch (error) {
-      console.error('Error while shutting down PostgreSQL client:', error);
+      // pg can include the raw DSN in error messages on shutdown failures.
+      const message = error instanceof Error ? error.message : String(error);
+
+      console.error('Error while shutting down PostgreSQL client:', redactConnectionString(message));
     }
   }
 }

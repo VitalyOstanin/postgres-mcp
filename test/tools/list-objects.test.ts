@@ -14,7 +14,10 @@ interface MockServer {
 
 interface ListObjectsParams {
   schema?: string;
-  type?: 'table' | 'view' | 'function' | 'all';
+  type?: 'table' | 'view' | 'function' | 'procedure' | 'all';
+  nameLike?: string;
+  limit?: number;
+  offset?: number;
 }
 
 describe('List Objects Tool', () => {
@@ -55,7 +58,8 @@ describe('List Objects Tool', () => {
     const [actualQuery] = (mockClient.executeQuery as Mock).mock.calls[0] as [string];
 
     expect(actualQuery).not.toMatch(/proisagg/);
-    expect(actualQuery).toMatch(/p\.prokind\s*=\s*'f'/);
+    // For type=all, the function/procedure branch now allows both 'f' and 'p'.
+    expect(actualQuery).toMatch(/p\.prokind\s+IN\s*\(\s*'f'\s*,\s*'p'\s*\)/);
   });
 
   it('returns the queried objects', async () => {
@@ -69,5 +73,39 @@ describe('List Objects Tool', () => {
     };
 
     expect(result.structuredContent.payload.count).toBe(2);
+  });
+
+  it('lists procedures with prokind=p', async () => {
+    mockClient.setExecuteQueryResult([]);
+
+    await toolFunction({ schema: 'public', type: 'procedure' });
+
+    const [actualQuery] = (mockClient.executeQuery as Mock).mock.calls[0] as [string];
+
+    expect(actualQuery).toMatch(/p\.prokind\s*=\s*'p'/);
+    expect(actualQuery).toMatch(/'procedure'\s+as\s+type/);
+  });
+
+  it('passes nameLike pattern through to ILIKE filter', async () => {
+    mockClient.setExecuteQueryResult([]);
+
+    await toolFunction({ schema: 'public', type: 'table', nameLike: 'user_%' });
+
+    const [actualQuery, actualParams] = (mockClient.executeQuery as Mock).mock.calls[0] as [string, unknown[]];
+
+    expect(actualQuery).toMatch(/table_name\s+ILIKE\s+\$2/);
+    expect(actualParams[0]).toBe('public');
+    expect(actualParams[1]).toBe('user_%');
+  });
+
+  it('passes nameLike=null when not provided so ILIKE branch is bypassed', async () => {
+    mockClient.setExecuteQueryResult([]);
+
+    await toolFunction({ schema: 'public', type: 'table' });
+
+    const [, actualParams] = (mockClient.executeQuery as Mock).mock.calls[0] as [string, unknown[]];
+
+    // Second parameter is the name pattern; null means "no filter".
+    expect(actualParams[1]).toBeNull();
   });
 });

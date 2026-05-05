@@ -2,30 +2,9 @@ import { z } from 'zod';
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { PostgreSQLClient } from '../postgres-client.js';
 import { toolSuccess, toolError } from '../utils/tool-response.js';
-import { streamPostgresQueryToFile, generatePostgresTempFilePath } from '../utils/postgres-stream.js';
+import { streamPostgresQueryToFile, writeArrayToFile, generatePostgresTempFilePath } from '../utils/postgres-stream.js';
 import { supportsCursor } from '../utils/query-analyzer.js';
 import { validateSafeOutputPath } from '../utils/safe-path.js';
-
-/**
- * Write an in-memory array of result rows to a file, reusing the streaming
- * sink from `streamPostgresQueryToFile`. The "stream" here just iterates the
- * array, so there is one canonical write path for both cursor-based exports
- * and forced (non-streaming) exports.
- */
-async function writeResultsToFile(
-  results: Array<Record<string, unknown>>,
-  format: 'jsonl' | 'json' = 'jsonl',
-  filePath?: string,
-): Promise<{ filePath: string; count: number }> {
-  const target = filePath ?? generatePostgresTempFilePath(format);
-  const arrayProducer = async (onRow: (row: Record<string, unknown>) => void | Promise<void>): Promise<void> => {
-    for (const row of results) {
-      await onRow(row);
-    }
-  };
-
-  return streamPostgresQueryToFile(arrayProducer, target, format);
-}
 
 const executeSQLSchema = z.object({
   query: z.string().describe('SQL query to execute (SELECT, INSERT, UPDATE, DELETE, DDL)'),
@@ -75,7 +54,10 @@ export function registerExecuteSQLTool(server: McpServer, client: PostgreSQLClie
           return true;
         }
 
-        if (Buffer.isBuffer(value)) {
+        // pg accepts both Node Buffer and plain Uint8Array for `bytea`
+        // parameters; allow both rather than rejecting Uint8Array that the
+        // MCP SDK delivers when a client sends raw binary data.
+        if (Buffer.isBuffer(value) || value instanceof Uint8Array) {
           return true;
         }
 
@@ -145,18 +127,22 @@ export function registerExecuteSQLTool(server: McpServer, client: PostgreSQLClie
               message: `${streamResult.count} records were written to the file in ${format} format.`,
             });
           } else if (forceSaveToFile) {
-            // If cursor is not supported but forceSaveToFile is true, save results without streaming
+            // Cursor isn't supported (DML/DDL or unparseable). The whole
+            // result must be buffered in memory once; we then write it
+            // directly to disk to avoid a second copy through an object-mode
+            // Transform pipeline.
+            const format = params.format ?? 'jsonl';
+            const filePath = requestedFilePath ?? generatePostgresTempFilePath(format);
             const results = await client.executeQuery<Record<string, unknown>>(query, validatedParams);
-            // Write results to file without streaming (for non-cursor queries)
-            const { filePath, count } = await writeResultsToFile(results, params.format ?? 'jsonl', requestedFilePath);
+            const { filePath: writtenPath, count } = await writeArrayToFile(results, filePath, format);
 
             return toolSuccess({
               savedToFile: true,
-              filePath,
+              filePath: writtenPath,
               query,
               count,
-              format: params.format ?? 'jsonl',
-              message: `${count} records were written to the file in ${params.format ?? 'jsonl'} format. Note: Query does not support cursor streaming, so all results were loaded into memory before writing to file.`,
+              format,
+              message: `${count} records were written to the file in ${format} format. Note: Query does not support cursor streaming, so all results were loaded into memory before writing to file.`,
             });
           } else {
             // If cursor is not supported and forceSaveToFile is false, return an error

@@ -6,21 +6,35 @@ on:
   pull_request:
     branches: [ "**" ]
 
+# Least-privilege default. The CI workflow only needs to read the repo to
+# build and test; jobs that need additional scopes should opt in explicitly.
+permissions:
+  contents: read
+
+# Cancel in-flight runs on the same ref when a new commit lands. Saves CI
+# minutes and avoids double-publishing intermediate artifacts.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
     strategy:
+      fail-fast: false
       matrix:
-        node-version: [20.x, 22.x]
+        node-version: [22.x, 24.x]
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v4
+      # actions/checkout pinned to v4.3.1
+      uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
 
     - name: Setup Node.js ${{ matrix.node-version }}
-      uses: actions/setup-node@v4
+      # actions/setup-node pinned to v4.4.0
+      uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
       with:
         node-version: ${{ matrix.node-version }}
         cache: 'npm'
@@ -30,6 +44,9 @@ jobs:
 
     - name: Run linter
       run: npm run lint
+
+    - name: Run typecheck
+      run: npm run typecheck
 
     - name: Run tests
       run: npm test
@@ -41,7 +58,7 @@ jobs:
       run: |
         test -f dist/index.js || { echo "Error: dist/index.js not found"; exit 1; }
         test -x dist/index.js || { echo "Error: dist/index.js is not executable"; exit 1; }
-        echo "✅ Build verification passed"
+        echo "Build verification passed"
 
     - name: List build artifacts
       run: ls -lh dist/
@@ -67,10 +84,12 @@ jobs:
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v4
+      # actions/checkout pinned to v4.3.1
+      uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
 
     - name: Setup Node.js
-      uses: actions/setup-node@v4
+      # actions/setup-node pinned to v4.4.0
+      uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
       with:
         node-version: 22.x
         cache: 'npm'

@@ -27,4 +27,34 @@ describe('redactConnectionString', () => {
   it('does not modify text without a connection URL', () => {
     expect(redactConnectionString('Failed to connect: timeout')).toBe('Failed to connect: timeout');
   });
+
+  it('redacts URL-encoded passwords (e.g. %20 spaces)', () => {
+    expect(redactConnectionString('postgres://user:pass%20word@host/db'))
+      .toBe('postgres://user:***@host/db');
+  });
+
+  it('redacts URL with empty user component', () => {
+    expect(redactConnectionString('postgresql://:secret@host:5432/db'))
+      .toBe('postgresql://:***@host:5432/db');
+  });
+
+  it('redacts libpq DSN password=...', () => {
+    expect(redactConnectionString('host=db.example user=alice password=hunter2 dbname=app'))
+      .toBe('host=db.example user=alice password=*** dbname=app');
+  });
+
+  it('redacts quoted libpq passwords', () => {
+    expect(redactConnectionString("user=alice password='multi word' dbname=app"))
+      .toBe('user=alice password=*** dbname=app');
+  });
+
+  it('is case-insensitive on libpq Password=', () => {
+    expect(redactConnectionString('Host=db Password=hunter2 User=alice'))
+      .toBe('Host=db Password=*** User=alice');
+  });
+
+  it('does not change unrelated key=value pairs that contain "password" as substring', () => {
+    expect(redactConnectionString('reset_password_token=xyz uses=3'))
+      .toBe('reset_password_token=xyz uses=3');
+  });
 });

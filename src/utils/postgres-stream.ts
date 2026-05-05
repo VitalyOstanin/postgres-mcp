@@ -1,4 +1,5 @@
 import { Transform, type TransformCallback } from 'stream';
+import { once } from 'events';
 import { createWriteStream } from 'fs';
 import { mkdir } from 'fs/promises';
 import { dirname } from 'path';
@@ -16,7 +17,6 @@ export class JsonLinesTransform extends Transform {
 
   override _transform(chunk: Record<string, unknown>, _encoding: string, callback: TransformCallback): void {
     try {
-      // Convert the chunk to a JSON line
       const jsonLine = `${JSON.stringify(chunk)}\n`;
 
       callback(null, jsonLine);
@@ -40,31 +40,22 @@ export class JsonArrayTransform extends Transform {
 
   override _transform(chunk: Record<string, unknown>, _encoding: string, callback: TransformCallback): void {
     try {
-      if (this.isFirst) {
-        // For the first chunk, we add the opening bracket
-        this.push('[\n');
-        this.isFirst = false;
-      } else {
-        // For subsequent chunks, we add a comma separator
-        this.push(',\n');
-      }
-
-      // Convert the chunk to a JSON line
+      // Serialize first so a JSON.stringify failure leaves no half-written
+      // separator/bracket in the output stream.
       const jsonLine = JSON.stringify(chunk);
+      const prefix = this.isFirst ? '[\n' : ',\n';
 
-      callback(null, jsonLine);
+      this.isFirst = false;
+      callback(null, prefix + jsonLine);
     } catch (error) {
       callback(error as Error);
     }
   }
 
   override _flush(callback: TransformCallback): void {
-    // Add closing bracket for the JSON array
     if (this.isFirst) {
-      // If no data was processed, still add an empty array
       this.push('[]');
     } else {
-      // If data was processed, close the array
       this.push('\n]');
     }
     callback(null);
@@ -72,50 +63,118 @@ export class JsonArrayTransform extends Transform {
 }
 
 /**
- * Stream PostgreSQL query results directly to a file using true streaming without accumulating in memory
+ * Stream PostgreSQL query results directly to a file using true streaming
+ * without accumulating in memory. Honours write-side back-pressure so the
+ * transform buffer doesn't grow unbounded on slow disks, and tears down the
+ * write stream on any error so file descriptors are not leaked.
  */
 export async function streamPostgresQueryToFile(
   streamQueryFunction: (onRow: (row: Record<string, unknown>) => void | Promise<void>) => Promise<void>,
   filePath: string,
   format: 'jsonl' | 'json' = 'jsonl',
 ): Promise<{ filePath: string; count: number }> {
-  // Ensure the directory exists
   const dir = dirname(filePath);
 
   await mkdir(dir, { recursive: true });
 
-  // Create the appropriate transform based on the format
   const transform = format === 'jsonl' ? new JsonLinesTransform() : new JsonArrayTransform();
-  // Create the write stream
+  // 'wx' would be safer but the public API has long allowed overwriting the
+  // target file; preserving that contract here.
   const writeStream = createWriteStream(filePath);
-  // Create a promise to handle the stream completion
   const streamCompletePromise = new Promise<void>((resolve, reject) => {
     writeStream.on('finish', () => { resolve(); });
     writeStream.on('error', (error) => { reject(error); });
+    transform.on('error', (error) => { reject(error); });
   });
-  // Create a counter for the rows
+
+  transform.pipe(writeStream);
+
   let count = 0;
-  // Define the row processing function
-  const processRow = async (row: Record<string, unknown>) => {
-    transform.write(row);
+  const processRow = async (row: Record<string, unknown>): Promise<void> => {
+    if (!transform.write(row)) {
+      await once(transform, 'drain');
+    }
     count++;
   };
 
-  // Pipe the transform to the write stream
-  transform.pipe(writeStream);
+  try {
+    await streamQueryFunction(processRow);
+    transform.end();
+    await streamCompletePromise;
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error));
 
-  // Execute the streaming query
-  await streamQueryFunction(processRow);
-
-  // End the transform after all rows have been processed
-  transform.end();
-
-  // Wait for the write stream to complete
-  await streamCompletePromise;
+    transform.destroy(err);
+    writeStream.destroy(err);
+    // Surface the rejection from streamCompletePromise but prefer the
+    // original error if both fire.
+    await streamCompletePromise.catch(() => { /* already handled */ });
+    throw err;
+  }
 
   return {
     filePath,
     count,
+  };
+}
+
+/**
+ * Write an in-memory array of rows to a file directly, without going through
+ * the object-mode Transform pipeline. Used for non-cursor queries where the
+ * result already lives in memory — pushing it through a Transform would
+ * double-buffer the same data and risk OOM on large RETURNING payloads.
+ */
+export async function writeArrayToFile(
+  rows: ReadonlyArray<Record<string, unknown>>,
+  filePath: string,
+  format: 'jsonl' | 'json' = 'jsonl',
+): Promise<{ filePath: string; count: number }> {
+  const dir = dirname(filePath);
+
+  await mkdir(dir, { recursive: true });
+
+  const writeStream = createWriteStream(filePath);
+  const finished = new Promise<void>((resolve, reject) => {
+    writeStream.on('finish', () => { resolve(); });
+    writeStream.on('error', (error) => { reject(error); });
+  });
+  const writeChunk = async (chunk: string): Promise<void> => {
+    if (!writeStream.write(chunk)) {
+      await once(writeStream, 'drain');
+    }
+  };
+
+  try {
+    if (format === 'jsonl') {
+      for (const row of rows) {
+        await writeChunk(`${JSON.stringify(row)}\n`);
+      }
+    } else if (rows.length === 0) {
+      await writeChunk('[]');
+    } else {
+      let isFirst = true;
+
+      for (const row of rows) {
+        const prefix = isFirst ? '[\n' : ',\n';
+
+        isFirst = false;
+        await writeChunk(prefix + JSON.stringify(row));
+      }
+      await writeChunk('\n]');
+    }
+    writeStream.end();
+    await finished;
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error));
+
+    writeStream.destroy(err);
+    await finished.catch(() => { /* already handled */ });
+    throw err;
+  }
+
+  return {
+    filePath,
+    count: rows.length,
   };
 }
 

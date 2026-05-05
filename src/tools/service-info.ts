@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { PostgreSQLClient } from '../postgres-client.js';
 import { toolSuccess } from '../utils/tool-response.js';
+import { redactConnectionString } from '../utils/redact.js';
 import { VERSION } from '../version.js';
 import { getTimezone } from '../utils/date.js';
 
@@ -41,10 +42,14 @@ export function registerServiceInfoTool(server: McpServer, client: PostgreSQLCli
       let finalResponse;
 
       if (!connectionInfo.isConnected) {
+        // Defense in depth: messages reach `connectionInfo` already redacted
+        // by PostgreSQLClient, but run them through one more time so any
+        // future code path that bypasses the client redaction still cannot
+        // surface a DSN to the MCP client.
         finalResponse = {
           ...baseResponse,
-          ...(connectionInfo.disconnectReason && { disconnectReason: connectionInfo.disconnectReason }),
-          ...(connectionInfo.connectionError && { connectionError: connectionInfo.connectionError }),
+          ...(connectionInfo.disconnectReason && { disconnectReason: redactConnectionString(connectionInfo.disconnectReason) }),
+          ...(connectionInfo.connectionError && { connectionError: redactConnectionString(connectionInfo.connectionError) }),
         };
       } else {
         finalResponse = {

@@ -5,9 +5,26 @@ on:
     tags:
       - 'v*'
 
+# Default to read-only; the publish job opts into the extra scopes it needs.
+permissions:
+  contents: read
+
+# Two tag pushes for the same version should never race; serialize.
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   publish:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    # Gate publishing on the `npm-publish` environment. Configure required
+    # reviewers / branch restrictions / secret scoping under
+    # Settings → Environments → npm-publish so a tag push alone cannot release.
+    environment:
+      name: npm-publish
+      url: https://www.npmjs.com/package/@vitalyostanin/postgres-mcp
 
     permissions:
       contents: write  # Required for creating GitHub releases
@@ -15,27 +32,36 @@ jobs:
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v4
+      # actions/checkout pinned to v4.3.1
+      uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
 
     - name: Setup Node.js
-      uses: actions/setup-node@v4
+      # actions/setup-node pinned to v4.4.0
+      uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
       with:
-        node-version: '20.x'
+        node-version: '22.x'
         registry-url: 'https://registry.npmjs.org'
         cache: 'npm'
 
     - name: Install dependencies
       run: npm ci
 
+    - name: Run linter
+      run: npm run lint
+
+    - name: Run typecheck
+      run: npm run typecheck
+
+    - name: Run tests
+      run: npm test
+
     - name: Build project
       run: npm run build
 
     - name: Verify package contents
       run: |
-        echo "📦 Package contents:"
+        echo "Package contents:"
         npm pack --dry-run
-        echo ""
-        echo "✅ Package verification complete"
 
     - name: Publish to npm
       run: npm publish --provenance --access public
@@ -48,13 +74,11 @@ jobs:
       run: |
         gh release create ${{ github.ref_name }} \
           --title "Release ${{ github.ref_name }}" \
-          --notes "🚀 New release of PostgreSQL MCP Server
+          --notes "Release of @vitalyostanin/postgres-mcp ${{ github.ref_name }}.
 
-        **Package**: \`@vitalyostanin/postgres-mcp@${{ github.ref_name }}\`
-
-        Install with:
+        Install:
         \`\`\`bash
         npm install @vitalyostanin/postgres-mcp@${{ github.ref_name }}
         \`\`\`
 
-        See [CHANGELOG](https://github.com/VitalyOstanin/postgres-mcp/blob/${{ github.ref_name }}/README.md) for details."
+        See [CHANGELOG](https://github.com/VitalyOstanin/postgres-mcp/blob/${{ github.ref_name }}/CHANGELOG.md) for details."

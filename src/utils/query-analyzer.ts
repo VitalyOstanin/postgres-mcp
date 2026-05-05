@@ -75,7 +75,12 @@ function firstKeyword(query: string): string {
 
   let end = i;
 
-  while (end < query.length && /[A-Za-z]/.test(query[end] ?? '')) {
+  // Match a full SQL identifier (letters, digits, underscores) so that a
+  // user-defined function like `mydb_func()` is split as a single token rather
+  // than producing a partial keyword `MYDB` that could accidentally collide
+  // with a real keyword if any future entry in NON_CURSOR_FIRST_KEYWORDS ever
+  // contained a digit or underscore.
+  while (end < query.length && /[A-Za-z0-9_]/.test(query[end] ?? '')) {
     end++;
   }
 

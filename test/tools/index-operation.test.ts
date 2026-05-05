@@ -21,7 +21,13 @@ interface IndexOperationParams {
   unique?: boolean;
   ifNotExists?: boolean;
   ifExists?: boolean;
+  concurrently?: boolean;
   tableName?: string;
+}
+
+interface ToolResult {
+  isError?: boolean;
+  content: Array<{ type: string; text: string }>;
 }
 
 describe('Index Operation Tool', () => {
@@ -140,7 +146,10 @@ describe('Index Operation Tool', () => {
 
   describe('drop operation', () => {
     it('emits IF EXISTS BEFORE the index name (PostgreSQL syntax)', async () => {
-      mockClient.setExecuteQueryResult([]);
+      // First call: lookup returns the matching table; second call: actual DROP.
+      (mockClient.executeQuery as Mock)
+        .mockResolvedValueOnce([{ table_name: 'users' }])
+        .mockResolvedValueOnce([]);
 
       await toolFunction({
         operation: 'drop',
@@ -150,9 +159,125 @@ describe('Index Operation Tool', () => {
         ifExists: true,
       });
 
+      const {calls} = (mockClient.executeQuery as Mock).mock;
+      const dropCall = calls[calls.length - 1] as [string];
+
+      expect(dropCall[0]).toMatch(/DROP INDEX\s+IF EXISTS\s+"public"\."idx_users_email"/);
+    });
+
+    it('refuses to drop when the index belongs to a different table', async () => {
+      // Lookup returns "orders" but the user claimed "users".
+      (mockClient.executeQuery as Mock).mockResolvedValueOnce([{ table_name: 'orders' }]);
+
+      const result = await toolFunction({
+        operation: 'drop',
+        schema: 'public',
+        table: 'users',
+        name: 'idx_orders_user_id',
+      }) as ToolResult;
+
+      expect(result.isError).toBe(true);
+      // Tool errors come back as JSON-encoded payloads, so the embedded quotes are escaped.
+      expect(result.content[0]?.text).toMatch(/belongs to table \\"orders\\", not \\"users\\"/);
+      // Only the lookup must have run — the DROP must not have been issued.
+      expect((mockClient.executeQuery as Mock).mock.calls).toHaveLength(1);
+    });
+
+    it('returns success without dropping when index is missing and ifExists=true', async () => {
+      (mockClient.executeQuery as Mock).mockResolvedValueOnce([]);
+
+      const result = await toolFunction({
+        operation: 'drop',
+        schema: 'public',
+        name: 'missing_idx',
+        ifExists: true,
+      }) as ToolResult;
+
+      expect(result.isError).toBeFalsy();
+      expect(result.content[0]?.text).toMatch(/does not exist; skipped/);
+      expect((mockClient.executeQuery as Mock).mock.calls).toHaveLength(1);
+    });
+
+    it('errors when the index is missing and ifExists is not set', async () => {
+      (mockClient.executeQuery as Mock).mockResolvedValueOnce([]);
+
+      const result = await toolFunction({
+        operation: 'drop',
+        schema: 'public',
+        name: 'missing_idx',
+      }) as ToolResult;
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0]?.text).toMatch(/does not exist/);
+    });
+
+    it('emits CONCURRENTLY in the DROP when concurrently=true', async () => {
+      (mockClient.executeQuery as Mock)
+        .mockResolvedValueOnce([{ table_name: 'users' }])
+        .mockResolvedValueOnce([]);
+
+      await toolFunction({
+        operation: 'drop',
+        schema: 'public',
+        name: 'idx_users_email',
+        concurrently: true,
+      });
+
+      const {calls} = (mockClient.executeQuery as Mock).mock;
+      const dropCall = calls[calls.length - 1] as [string];
+
+      expect(dropCall[0]).toMatch(/DROP INDEX\s+CONCURRENTLY/);
+    });
+
+    it('drops without table-check when table is omitted', async () => {
+      (mockClient.executeQuery as Mock)
+        .mockResolvedValueOnce([{ table_name: 'orders' }])
+        .mockResolvedValueOnce([]);
+
+      const result = await toolFunction({
+        operation: 'drop',
+        schema: 'public',
+        name: 'idx_orders_user_id',
+      }) as ToolResult;
+
+      expect(result.isError).toBeFalsy();
+    });
+  });
+
+  describe('create operation: concurrently', () => {
+    it('emits CREATE INDEX CONCURRENTLY when concurrently=true', async () => {
+      mockClient.setExecuteQueryResult([]);
+
+      await toolFunction({
+        operation: 'create',
+        schema: 'public',
+        table: 'users',
+        name: 'idx_users_email',
+        columns: ['email'],
+        concurrently: true,
+      });
+
       const [actualQuery] = (mockClient.executeQuery as Mock).mock.calls[0] as [string];
 
-      expect(actualQuery).toMatch(/DROP INDEX\s+IF EXISTS\s+"public"\."idx_users_email"/);
+      expect(actualQuery).toMatch(/CREATE\s+INDEX\s+CONCURRENTLY/);
+    });
+
+    it('refuses concurrently=true together with unique=true', async () => {
+      mockClient.setExecuteQueryResult([]);
+
+      const result = await toolFunction({
+        operation: 'create',
+        schema: 'public',
+        table: 'users',
+        name: 'idx_users_email',
+        columns: ['email'],
+        unique: true,
+        concurrently: true,
+      }) as ToolResult;
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0]?.text).toMatch(/cannot be combined with unique/);
+      expect((mockClient.executeQuery as Mock).mock.calls).toHaveLength(0);
     });
   });
 });

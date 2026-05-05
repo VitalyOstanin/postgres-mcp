@@ -60,7 +60,7 @@ To use this MCP server with [Qwen Code](https://qwenlm.github.io/qwen-code-docs/
 }
 ```
 
-**Note:** This configuration uses npx to run the published package. For local development, use `"command": "node"` with `"args": ["/absolute/path/to/postgres-mcp/dist/index.js"]`. The `POSTGRES_MCP_TIMEZONE` and `POSTGRES_MCP_POOL_SIZE` environment variables are optional.
+**Note:** This configuration uses npx to run the published package. For local development, use `"command": "node"` with `"args": ["/absolute/path/to/postgres-mcp/dist/index.js"]`. The `POSTGRES_MCP_TIMEZONE` environment variable is optional. The pool size is controlled by the CLI flag `--pool-size` (default `1`); it cannot be changed via environment variables.
 
 ## Configuration for VS Code Cline
 
@@ -85,7 +85,7 @@ To use this MCP server with [Cline](https://github.com/cline/cline) extension in
 }
 ```
 
-**Note:** This configuration uses npx to run the published package. For local development, use `"command": "node"` with `"args": ["/absolute/path/to/postgres-mcp/dist/index.js"]`. The `POSTGRES_MCP_TIMEZONE` and `POSTGRES_MCP_POOL_SIZE` environment variables are optional.
+**Note:** This configuration uses npx to run the published package. For local development, use `"command": "node"` with `"args": ["/absolute/path/to/postgres-mcp/dist/index.js"]`. The `POSTGRES_MCP_TIMEZONE` environment variable is optional. The pool size is controlled by the CLI flag `--pool-size` (default `1`); it cannot be changed via environment variables.
 
 ## MCP Tools
 
@@ -166,6 +166,6 @@ For stronger isolation, use a PostgreSQL role that lacks `INSERT`/`UPDATE`/`DELE
 
 ### Connection Pool Behavior
 
-- The pool defaults to a single connection (`--pool-size 1`). With size 1, two parallel `tools/call` requests are serialized — the second one waits for the first to release the client. Increase `--pool-size` if you expect concurrent calls.
+- The pool defaults to a single connection (`--pool-size 1`). This is a deliberate trade-off: with size 1, two parallel `tools/call` requests are serialized, but a multi-step transaction issued as several `execute-sql` calls (`BEGIN`, `…`, `COMMIT`) reliably lands on the same backend session. With `--pool-size > 1` consecutive `execute-sql` calls may hit different pooled clients, which silently breaks `BEGIN/COMMIT` flows split across calls — perform multi-statement transactions inside a single `execute-sql` (e.g. via CTE, `INSERT … ON CONFLICT`, or a `BEGIN; …; COMMIT;` block in one query). Increase `--pool-size` if you need parallel reads/writes and don't rely on multi-call transactions.
 - A pool-level error (network drop, server restart, etc.) sets the server to disconnected state but does **not** automatically reconnect. The next call returns the recorded `connectionError`; call `connect` again to recover.
 - `disconnect` closes all idle sockets via `pool.end()`. The MCP server itself keeps running and will accept a fresh `connect` immediately.

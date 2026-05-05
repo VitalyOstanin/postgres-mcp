@@ -100,12 +100,18 @@ export function registerShowObjectTool(server: McpServer, client: PostgreSQLClie
               WHERE table_schema = $1 AND table_name = $2
               ORDER BY ordinal_position
             `;
-            const columns = await client.executeQuery<ColumnInfo>(columnsQuery, [schema, name]);
             // Get table/view information
             const infoQuery = type === 'table'
               ? `SELECT table_name as name, 'table' as type FROM information_schema.tables WHERE table_schema = $1 AND table_name = $2`
               : `SELECT table_name as name, 'view' as type FROM information_schema.views WHERE table_schema = $1 AND table_name = $2`;
-            const resultArray = await client.executeQuery<TableOrViewInfo>(infoQuery, [schema, name]);
+            // Run both queries in parallel: with `pool max >= 2` they fan out
+            // across two physical connections; with `pool max = 1` they
+            // serialize at the pool level but at least we don't pay two
+            // sequential client.connect()/release() round-trips here.
+            const [columns, resultArray] = await Promise.all([
+              client.executeQuery<ColumnInfo>(columnsQuery, [schema, name]),
+              client.executeQuery<TableOrViewInfo>(infoQuery, [schema, name]),
+            ]);
             const info = resultArray[0];
 
             if (info) {
