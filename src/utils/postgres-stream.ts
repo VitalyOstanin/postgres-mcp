@@ -78,9 +78,10 @@ export async function streamPostgresQueryToFile(
   await mkdir(dir, { recursive: true });
 
   const transform = format === 'jsonl' ? new JsonLinesTransform() : new JsonArrayTransform();
-  // 'wx' would be safer but the public API has long allowed overwriting the
-  // target file; preserving that contract here.
-  const writeStream = createWriteStream(filePath);
+  // Open with 'wx' so concurrent tool calls targeting the same path get an
+  // EEXIST error instead of silently clobbering each other's exports. Callers
+  // are expected to pick a unique filePath (timestamp, uuid) per invocation.
+  const writeStream = createWriteStream(filePath, { flags: 'wx' });
   const streamCompletePromise = new Promise<void>((resolve, reject) => {
     writeStream.on('finish', () => { resolve(); });
     writeStream.on('error', (error) => { reject(error); });
@@ -133,7 +134,8 @@ export async function writeArrayToFile(
 
   await mkdir(dir, { recursive: true });
 
-  const writeStream = createWriteStream(filePath);
+  // 'wx' — see streamPostgresQueryToFile for rationale.
+  const writeStream = createWriteStream(filePath, { flags: 'wx' });
   const finished = new Promise<void>((resolve, reject) => {
     writeStream.on('finish', () => { resolve(); });
     writeStream.on('error', (error) => { reject(error); });
