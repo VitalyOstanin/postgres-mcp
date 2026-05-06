@@ -31,7 +31,7 @@ class MockPostgreSQLClientClass {
     this.mockPool = { connect: () => Promise.resolve({ query: (_query: string, _params?: unknown[]) => Promise.resolve({ rows: [] }), release() {} }) };
   });
 
-  disconnect = vi.fn().mockImplementation(async (reason: string = "normal disconnect"): Promise<void> => {
+  disconnect = vi.fn().mockImplementation(async (reason: string = 'normal disconnect'): Promise<void> => {
     this.mockIsConnected = false;
     this.mockPool = null;
     this.mockConnectionString = null;
@@ -76,8 +76,17 @@ class MockPostgreSQLClientClass {
     }
   });
 
-  whenLifecycleSettled = vi.fn().mockImplementation(async (): Promise<void> => {
-    return Promise.resolve();
+  withTransaction = vi.fn().mockImplementation(async <T>(operation: (run: <R>(query: string, params?: unknown[]) => Promise<R[]>) => Promise<T>): Promise<T> => {
+    // Delegate to `executeQuery` so tests that pre-stage call sequences via
+    // `executeQuery.mockResolvedValueOnce(...)` continue to work without
+    // having to replicate the queue on a separate mock. The real client
+    // emits BEGIN/COMMIT around the operation; the mock skips that
+    // bookkeeping because tests do not exercise transactional semantics.
+    const run = async <R>(query: string, params?: unknown[]): Promise<R[]> => {
+      return this.executeQuery(query, params) as Promise<R[]>;
+    };
+
+    return operation(run);
   });
 
   isConnectedToPostgreSQL = vi.fn().mockImplementation((): boolean => {
@@ -137,13 +146,13 @@ type RealPublicSurface = Pick<PostgreSQLClient,
   | 'isReadonly'
   | 'connect'
   | 'disconnect'
-  | 'whenLifecycleSettled'
   | 'getPool'
   | 'getPoolSize'
   | 'getIdleTimeoutMillis'
   | 'getConnectionTimeoutMillis'
   | 'executeQuery'
   | 'streamQuery'
+  | 'withTransaction'
   | 'isConnectedToPostgreSQL'
   | 'getConnectionInfo'
   | 'getConnectionString'

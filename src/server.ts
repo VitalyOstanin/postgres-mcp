@@ -1,18 +1,25 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { VERSION } from "./version.js";
-import { PostgreSQLClient } from "./postgres-client.js";
-import { loadConfig } from "./config.js";
-import { initializeTimezone } from "./utils/date.js";
-import { redactConnectionString } from "./utils/redact.js";
-import { supportsCursor } from "./utils/query-analyzer.js";
-import { registerConnectTool } from "./tools/connect.js";
-import { registerDisconnectTool } from "./tools/disconnect.js";
-import { registerListSchemasTool } from "./tools/list-schemas.js";
-import { registerServiceInfoTool } from "./tools/service-info.js";
-import { registerExecuteSQLTool } from "./tools/execute-sql.js";
-import { registerListObjectsTool } from "./tools/list-objects.js";
-import { registerShowObjectTool } from "./tools/show-object.js";
-import { registerIndexOperationTool } from "./tools/index-operation.js";
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { VERSION } from './version.js';
+import { PostgreSQLClient } from './postgres-client.js';
+import { loadConfig } from './config.js';
+import { initializeTimezone } from './utils/date.js';
+import { redactConnectionString } from './utils/redact.js';
+import { supportsCursor } from './utils/query-analyzer.js';
+import { registerConnectTool } from './tools/connect.js';
+import { registerDisconnectTool } from './tools/disconnect.js';
+import { registerListSchemasTool } from './tools/list-schemas.js';
+import { registerServiceInfoTool } from './tools/service-info.js';
+import { registerExecuteSQLTool } from './tools/execute-sql.js';
+import { registerListObjectsTool } from './tools/list-objects.js';
+import { registerShowObjectTool } from './tools/show-object.js';
+import { registerIndexOperationTool } from './tools/index-operation.js';
+import {
+  DEFAULT_AUTO_CONNECT,
+  DEFAULT_CONNECTION_TIMEOUT_MS,
+  DEFAULT_IDLE_TIMEOUT_MS,
+  DEFAULT_POOL_SIZE,
+  DEFAULT_READONLY_MODE,
+} from './defaults.js';
 
 export interface PostgreSQLServerOptions {
   autoConnect?: boolean;
@@ -29,15 +36,15 @@ export class PostgreSQLServer {
 
   constructor(options: PostgreSQLServerOptions = {}) {
     this.options = {
-      autoConnect: options.autoConnect ?? false,
-      readonlyMode: options.readonlyMode ?? true,
-      poolSize: options.poolSize ?? 1,
-      idleTimeout: options.idleTimeout ?? 30000,
-      connectionTimeout: options.connectionTimeout ?? 10000,
+      autoConnect: options.autoConnect ?? DEFAULT_AUTO_CONNECT,
+      readonlyMode: options.readonlyMode ?? DEFAULT_READONLY_MODE,
+      poolSize: options.poolSize ?? DEFAULT_POOL_SIZE,
+      idleTimeout: options.idleTimeout ?? DEFAULT_IDLE_TIMEOUT_MS,
+      connectionTimeout: options.connectionTimeout ?? DEFAULT_CONNECTION_TIMEOUT_MS,
     };
     this.server = new McpServer(
       {
-        name: "postgres-mcp",
+        name: 'postgres-mcp',
         version: VERSION,
       },
       {
@@ -112,7 +119,7 @@ export class PostgreSQLServer {
     }
   }
 
-  async connect(transport: Parameters<McpServer["connect"]>[0]): Promise<void> {
+  async connect(transport: Parameters<McpServer['connect']>[0]): Promise<void> {
     await this.server.connect(transport);
   }
 

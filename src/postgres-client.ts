@@ -1,22 +1,29 @@
 import { Pool, type PoolConfig } from 'pg';
 import QueryStream from 'pg-query-stream';
 import { redactConnectionString } from './utils/redact.js';
+import {
+  DEFAULT_CONNECTION_TIMEOUT_MS,
+  DEFAULT_IDLE_TIMEOUT_MS,
+  DEFAULT_POOL_SIZE,
+  DEFAULT_READONLY_MODE,
+} from './defaults.js';
+import { CONNECTION_STRING_REQUIRED_MESSAGE } from './utils/connection-messages.js';
 
 export class PostgreSQLClient {
   private pool: Pool | null = null;
-  private isConnected: boolean = false;
+  private isConnected = false;
   private connectionString: string | null = null;
-  private readonlyMode: boolean = false;
+  private readonlyMode = DEFAULT_READONLY_MODE;
   private disconnectReason: string | null = null;
   private connectionError: Error | null = null;
-  private poolSize: number = 1;
-  private idleTimeoutMillis: number = 30000;
-  private connectionTimeoutMillis: number = 10000;
+  private poolSize = DEFAULT_POOL_SIZE;
+  private idleTimeoutMillis = DEFAULT_IDLE_TIMEOUT_MS;
+  private connectionTimeoutMillis = DEFAULT_CONNECTION_TIMEOUT_MS;
   // Serializes connect/disconnect so two concurrent calls can't race creating
   // and overwriting `this.pool` (or call `pool.end()` twice on the same pool).
   private lifecyclePromise: Promise<void> = Promise.resolve();
 
-  constructor(initialReadonlyMode: boolean = true) {
+  constructor(initialReadonlyMode: boolean = DEFAULT_READONLY_MODE) {
     this.readonlyMode = initialReadonlyMode;
   }
 
@@ -24,23 +31,17 @@ export class PostgreSQLClient {
     return this.readonlyMode;
   }
 
-  async connect(readonlyMode: boolean = true, poolSize: number = 1, idleTimeoutMillis: number = 30000, connectionTimeoutMillis: number = 10000): Promise<void> {
+  async connect(
+    readonlyMode: boolean = DEFAULT_READONLY_MODE,
+    poolSize: number = DEFAULT_POOL_SIZE,
+    idleTimeoutMillis: number = DEFAULT_IDLE_TIMEOUT_MS,
+    connectionTimeoutMillis: number = DEFAULT_CONNECTION_TIMEOUT_MS,
+  ): Promise<void> {
     return this.runExclusive(() => this.doConnect(readonlyMode, poolSize, idleTimeoutMillis, connectionTimeoutMillis));
   }
 
-  async disconnect(reason: string = "normal disconnect"): Promise<void> {
+  async disconnect(reason: string = 'normal disconnect'): Promise<void> {
     return this.runExclusive(() => this.doDisconnect(reason));
-  }
-
-  /**
-   * Promise returned by the most recent ongoing connect/disconnect (or a
-   * resolved promise once nothing is in flight). Other call sites can `await`
-   * it before doing work that requires a stable pool — e.g. ensuring an
-   * auto-connect from the constructor finished before serving the first MCP
-   * request.
-   */
-  async whenLifecycleSettled(): Promise<void> {
-    await this.lifecyclePromise.catch(() => { /* swallow — caller checks isConnected */ });
   }
 
   private runExclusive(operation: () => Promise<void>): Promise<void> {
@@ -57,7 +58,7 @@ export class PostgreSQLClient {
     const connString = process.env['POSTGRES_MCP_CONNECTION_STRING'];
 
     if (!connString) {
-      throw new Error('Connection string is required. Please set POSTGRES_MCP_CONNECTION_STRING environment variable.');
+      throw new Error(CONNECTION_STRING_REQUIRED_MESSAGE);
     }
 
     if (this.isConnected && this.pool) {
@@ -137,12 +138,17 @@ export class PostgreSQLClient {
   }
 
   private async doDisconnect(reason: string): Promise<void> {
+    // Update the disconnect reason regardless of whether the pool is still
+    // alive — if pool.on('error') already tore the pool down, an explicit
+    // user-initiated disconnect should still overwrite the prior cause so
+    // service-info reports the most recent reason.
+    this.disconnectReason = reason;
+
     if (this.pool) {
       await this.pool.end();
       this.isConnected = false;
       this.pool = null;
       this.connectionString = null;
-      this.disconnectReason = reason;
       this.connectionError = null;
     }
   }
@@ -194,6 +200,41 @@ export class PostgreSQLClient {
       const result = await client.query(query, params);
 
       return result.rows as T[];
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * Run a sequence of statements on a single physical connection inside a
+   * single transaction. Used for check-then-act flows that must be atomic
+   * (e.g. `index-operation drop` looks up the index and then drops it).
+   * Cannot be used with statements that PostgreSQL forbids inside a
+   * transaction block (notably `CREATE/DROP INDEX CONCURRENTLY`).
+   */
+  async withTransaction<T>(operation: (run: <R>(query: string, params?: unknown[]) => Promise<R[]>) => Promise<T>): Promise<T> {
+    const pool = this.ensureConnected();
+    const client = await pool.connect();
+
+    try {
+      await client.query('BEGIN');
+
+      const run = async <R>(query: string, params?: unknown[]): Promise<R[]> => {
+        const result = await client.query(query, params);
+
+        return result.rows as R[];
+      };
+
+      try {
+        const value = await operation(run);
+
+        await client.query('COMMIT');
+
+        return value;
+      } catch (error) {
+        await client.query('ROLLBACK').catch(() => { /* prefer the original error */ });
+        throw error;
+      }
     } finally {
       client.release();
     }

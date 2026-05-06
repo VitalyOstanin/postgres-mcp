@@ -2,35 +2,69 @@
 
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { PostgreSQLServer } from "./src/server.js";
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { PostgreSQLServer } from './src/server.js';
+import { redactConnectionString } from './src/utils/redact.js';
+import {
+  DEFAULT_AUTO_CONNECT,
+  DEFAULT_CONNECTION_TIMEOUT_MS,
+  DEFAULT_IDLE_TIMEOUT_MS,
+  DEFAULT_POOL_SIZE,
+  DEFAULT_READONLY_MODE,
+} from './src/defaults.js';
+
+/**
+ * Format an unknown error for stderr without leaking the connection string.
+ * pg can embed the raw DSN (with password) in `error.message`, `error.stack`
+ * and `error.cause`, so every textual field passes through `redactConnectionString`
+ * before we touch the terminal.
+ */
+function describeForStderr(error: unknown): string {
+  if (error instanceof Error) {
+    const lines: string[] = [redactConnectionString(`${error.name}: ${error.message}`)];
+
+    if (error.stack) {
+      lines.push(redactConnectionString(error.stack));
+    }
+
+    const {cause} = (error as Error & { cause?: unknown });
+
+    if (cause !== undefined) {
+      lines.push(`Caused by: ${describeForStderr(cause)}`);
+    }
+
+    return lines.join('\n');
+  }
+
+  return redactConnectionString(typeof error === 'string' ? error : String(error));
+}
 
 async function main() {
   const argv = await yargs(hideBin(process.argv))
     .option('auto-connect', {
       type: 'boolean',
       description: 'Auto connect to PostgreSQL on startup',
-      default: false,
+      default: DEFAULT_AUTO_CONNECT,
     })
     .option('read-only', {
       type: 'boolean',
       description: 'Run in read-only mode',
-      default: true,
+      default: DEFAULT_READONLY_MODE,
     })
     .option('pool-size', {
       type: 'number',
       description: 'Connection pool size',
-      default: 1,
+      default: DEFAULT_POOL_SIZE,
     })
     .option('idle-timeout', {
       type: 'number',
       description: 'Idle timeout in milliseconds',
-      default: 30000, // 30 seconds
+      default: DEFAULT_IDLE_TIMEOUT_MS,
     })
     .option('connection-timeout', {
       type: 'number',
       description: 'Connection timeout in milliseconds',
-      default: 10000, // 10 seconds
+      default: DEFAULT_CONNECTION_TIMEOUT_MS,
     })
     .parseAsync();
   const transport = new StdioServerTransport();
@@ -86,7 +120,7 @@ async function main() {
       .then(() => server.shutdown())
       .then(() => { process.exit(0); })
       .catch((error: unknown) => {
-        console.error('Error during shutdown:', error);
+        console.error('Error during shutdown:', describeForStderr(error));
         process.exit(1);
       });
   };
@@ -97,7 +131,7 @@ async function main() {
   await startup;
 }
 
-main().catch((error) => {
-  console.error("PostgreSQL MCP server crashed", error);
+main().catch((error: unknown) => {
+  console.error('PostgreSQL MCP server crashed:', describeForStderr(error));
   process.exit(1);
 });

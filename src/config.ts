@@ -1,4 +1,5 @@
-import { z } from "zod";
+import { z } from 'zod';
+import { DEFAULT_TIMEZONE } from './defaults.js';
 
 export interface PostgreSQLConfig {
   connectionString?: string | undefined;
@@ -42,11 +43,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): PostgreSQLConf
       .filter(([, value]) => Array.isArray(value) && value.length > 0)
       .map(([field]) => field);
 
-    throw new Error(`PostgreSQL configuration error: invalid environment variables: ${issues.join(", ")}`);
+    throw new Error(`PostgreSQL configuration error: invalid environment variables: ${issues.join(', ')}`);
   }
 
   return {
     connectionString: parsed.data['POSTGRES_MCP_CONNECTION_STRING'],
-    timezone: parsed.data['POSTGRES_MCP_TIMEZONE'] ?? "Europe/Moscow",
+    timezone: parsed.data['POSTGRES_MCP_TIMEZONE'] ?? DEFAULT_TIMEZONE,
   };
 }
