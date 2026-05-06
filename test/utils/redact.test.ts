@@ -65,4 +65,12 @@ describe('redactConnectionString', () => {
     expect(redactConnectionString('postgres://user%3Aname:secret@host:5432/db'))
       .toBe('postgres://user%3Aname:***@host:5432/db');
   });
+
+  it('redacts password passed via query-string and stops at the next param', () => {
+    // PostgreSQL accepts libpq parameters via the URI query component. The
+    // libpq-form regex must not gobble the rest of the query string after
+    // the password value.
+    expect(redactConnectionString('postgresql://user@host/db?password=secret&sslmode=require'))
+      .toBe('postgresql://user@host/db?password=***&sslmode=require');
+  });
 });

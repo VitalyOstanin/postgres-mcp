@@ -36,6 +36,23 @@ describe('quoteIdent', () => {
     // 32 cyrillic chars * 2 bytes = 64 bytes -> exceeds
     expect(() => quoteIdent('ы'.repeat(32))).toThrow(/63 bytes/);
   });
+
+  it('truncates the offending name in the error message at 80 chars', () => {
+    const veryLong = 'a'.repeat(2000);
+    let captured: Error | undefined;
+
+    try {
+      quoteIdent(veryLong);
+    } catch (e) {
+      captured = e as Error;
+    }
+
+    expect(captured).toBeDefined();
+    expect(captured?.message).toMatch(/63 bytes:/);
+    // 80 chars + ellipsis, not the full 2000-byte payload.
+    expect(captured?.message.endsWith('…')).toBe(true);
+    expect(captured?.message.length).toBeLessThan(150);
+  });
 });
 
 describe('quoteQualified', () => {
