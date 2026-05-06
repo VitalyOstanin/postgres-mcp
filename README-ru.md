@@ -30,7 +30,7 @@ MCP сервер для всесторонней интеграции с Postgre
 
 ## Требования
 
-- Node.js ≥ 20
+- Node.js ≥ 22
 - Переменные окружения:
   - `POSTGRES_MCP_CONNECTION_STRING` — строка подключения к PostgreSQL (в формате postgresql://)
   - `POSTGRES_MCP_TIMEZONE` — опциональная таймзона для операций с датами (по умолчанию: `Europe/Moscow`), должна быть валидным идентификатором IANA (например, `Europe/London`, `America/New_York`, `Asia/Tokyo`)

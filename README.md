@@ -30,7 +30,7 @@ MCP server for comprehensive PostgreSQL integration with the following capabilit
 
 ## Requirements
 
-- Node.js ≥ 20
+- Node.js ≥ 22
 - Environment variables:
   - `POSTGRES_MCP_CONNECTION_STRING` — PostgreSQL connection string (postgresql:// format)
   - `POSTGRES_MCP_TIMEZONE` — optional timezone for date operations (default: `Europe/Moscow`), must be a valid IANA timezone identifier (e.g., `Europe/London`, `America/New_York`, `Asia/Tokyo`)
