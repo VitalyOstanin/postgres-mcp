@@ -1,6 +1,6 @@
-import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { ZodError } from "zod";
-import { redactConnectionString } from "./redact.js";
+import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
+import { ZodError } from 'zod';
+import { redactConnectionString } from './redact.js';
 
 // Both `content` (text JSON) and `structuredContent` (object) are populated
 // on every response: clients with an outputSchema use structuredContent,
@@ -14,7 +14,7 @@ export function toolSuccess<T = unknown>(payload: T): CallToolResult {
   return {
     content: [
       {
-        type: "text",
+        type: 'text',
         text: JSON.stringify(body),
       },
     ],
@@ -25,8 +25,8 @@ export function toolSuccess<T = unknown>(payload: T): CallToolResult {
 function buildErrorBody(error: unknown): Record<string, unknown> {
   if (error instanceof ZodError) {
     return {
-      name: "ValidationError",
-      message: "Invalid input",
+      name: 'ValidationError',
+      message: 'Invalid input',
       details: error.flatten(),
     };
   }
@@ -65,9 +65,9 @@ function buildErrorBody(error: unknown): Record<string, unknown> {
   }
 
   return {
-    name: "UnknownError",
-    message: "An unknown error occurred",
-    details: typeof error === "string" ? redactConnectionString(error) : error,
+    name: 'UnknownError',
+    message: 'An unknown error occurred',
+    details: typeof error === 'string' ? redactConnectionString(error) : error,
   };
 }
 
@@ -77,7 +77,7 @@ export function toolError(error: unknown): CallToolResult {
   return {
     isError: true,
     content: [
-      { type: "text", text: JSON.stringify(body) },
+      { type: 'text', text: JSON.stringify(body) },
     ],
     structuredContent: body,
   };

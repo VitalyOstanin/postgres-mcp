@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi, type Mock } from 'vitest';
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { MockPostgreSQLClient } from '../__mocks__/postgres-client.mock';
 import { resetMockClient, getMockClient } from '../utils/test-helpers';
 import { registerListSchemasTool } from '../../src/tools/list-schemas';

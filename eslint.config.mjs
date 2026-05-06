@@ -1,35 +1,36 @@
-import js from "@eslint/js";
-import tseslint from "typescript-eslint";
-import gitignore from "eslint-config-flat-gitignore";
+import js from '@eslint/js';
+import tseslint from 'typescript-eslint';
+import gitignore from 'eslint-config-flat-gitignore';
 
 export default [
   gitignore(),
   {
-    ignores: ["dist/**", "node_modules/**", "coverage/**", "temp/**", "tmp/**"],
+    ignores: ['dist/**', 'node_modules/**', 'coverage/**', 'temp/**', 'tmp/**'],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    files: ["**/*.ts", "**/*.mts"],
+    files: ['**/*.ts', '**/*.mts'],
     languageOptions: {
       parser: tseslint.parser,
       parserOptions: {
         projectService: true,
         tsconfigRootDir: import.meta.dirname,
-        sourceType: "module",
+        sourceType: 'module',
       },
       globals: {
-        process: "readonly",
-        Buffer: "readonly",
-        console: "readonly",
+        process: 'readonly',
+        Buffer: 'readonly',
+        console: 'readonly',
       },
     },
     plugins: {
-      "@typescript-eslint": tseslint.plugin,
+      '@typescript-eslint': tseslint.plugin,
     },
     rules: {
-      "eol-last": "error",
-      "no-trailing-spaces": "error",
+      'quotes': ['error', 'single', { avoidEscape: true, allowTemplateLiterals: true }],
+      'eol-last': 'error',
+      'no-trailing-spaces': 'error',
       "no-console": "off",
       "no-debugger": "error",
       "no-duplicate-imports": "error",
