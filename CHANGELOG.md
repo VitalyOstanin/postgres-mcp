@@ -7,10 +7,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Table of Contents
 
+- [0.5.0](#050---2026-05-07)
 - [0.4.0](#040---2026-05-07)
 - [0.3.0](#030---2026-05-06)
 - [0.2.0](#020---2026-05-06)
 - [0.1.0](#010)
+
+## [0.5.0] - 2026-05-07
+
+> **Breaking changes:** `show-object` with `type='function'` no longer returns rows for procedures (its SQL now filters by `prokind='f'`); call `show-object` with the new `type='procedure'` instead. See *Breaking* below.
+
+### Fixed
+
+- **`PostgreSQLClient` leaked the failed pool on `pool.on('error')`**: the error handler set `isConnected=false` but kept `this.pool` pointing at the dead pool, so the next `connect()` skipped `doDisconnect` (the guard requires `isConnected=true`) and overwrote the pool reference, leaving the previous pool's TCP sockets open until idle timeout. The handler now calls `pool.end().catch(() => {})` on the failed pool and clears `this.pool` if it still references that pool.
+- **`PostgreSQLClient.streamQuery` and `withTransaction` returned a half-baked client to the pool after errors**: pg `client.release()` was called without an argument even when `stream.destroy()` had torn down a mid-response or `ROLLBACK` had failed, so the next caller could pick up a connection in inconsistent protocol state. Both methods now capture the error and pass it to `client.release(err)`, telling the pool to destroy the client instead of recycling it.
+- **`redactConnectionString` did not handle URI query passwords**: a libpq parameter passed via the URI form (`postgresql://user@host/db?password=secret&sslmode=require`) was matched by the libpq-form regex, but the value class `[^\s'"]+` swallowed everything up to whitespace, so subsequent `&` parameters were dropped from the redacted output. The class now excludes `&`, so the redacted string preserves the rest of the query.
+- **`show-object` returned procedures under `type:'function'`**: the function-branch SQL filtered by `prokind IN ('f','p')` while the response always set `type:'function'`, so a procedure with the same name as a function silently appeared as a function. Each branch now filters by exactly one `prokind` (see Breaking).
+- **`list-objects` description listed window functions (`prokind='w'`) that the SQL never returned**: the description now matches the actual filter (`'f'` and `'p'` only).
+- **`index-operation runDrop` had ~30 lines duplicated between concurrent and transactional branches**: shared lookup + `ifExists` short-circuit + `actualTable !== table` check moved to a single `preCheckIndexDrop` helper returning a discriminated union (`short-circuit` with the prepared response, or `proceed` with the resolved table/OID).
+- **`postgres-stream` repeated the open-write-stream boilerplate twice**: extracted `openSafeWriteStream(filePath)` (mkdir + `'wx'` flags + finished promise) and used it from both `streamPostgresQueryToFile` and `writeArrayToFile`.
+- **`IndexLookupRow.oid` was typed as `number` while `node-postgres` returns `int8` as a string**: the type now matches the wire format (`oid: string`), and `IndexDropPreCheck` propagates the change to the verification path.
+- **`quoteIdent` echoed the entire identifier (could be 1 KB of LLM-generated noise) into its `Identifier exceeds 63 bytes` error**: the offending name is now truncated to ~80 characters with an ellipsis.
+- **`show-object` could swallow a found-but-empty row**: the `if (!first) break` path treated a real row that decoded to `undefined` as "object does not exist". It now returns an explicit `Internal error: query returned an empty row`.
+
+### Added
+
+- `src/defaults.ts`: `DEFAULT_SCHEMA = 'public'` so the six call sites in `index-operation`, `list-objects` and `show-object` share one constant for both the Zod `.default(...)` and the destructuring fallback.
+- `src/utils/sql-params.ts`: new `getSerializationIssue(value)` returning a discriminated `{ reason: 'cyclic' | 'depth' | 'type', ... }` so `execute-sql` can surface the actual cause of a parameter-validation failure (cyclic reference, depth-cap hit, disallowed `typeof`) instead of a single generic message. Boolean `isSerializableParam` is preserved as a thin wrapper for existing callers.
+- `show-object` now accepts `type='procedure'`; the response shape mirrors the existing function form but with `type: 'procedure'`, so callers can drop the previous workaround of calling `type='function'` and post-filtering.
+- `index-operation` registers a `default` branch on the operation `switch` that returns a structured `Unknown operation` error — defence-in-depth in case the Zod enum and the dispatch get out of sync.
+- `index-operation` exports `resetDeprecationWarning()` so tests can run in any order without depending on the once-per-process warning side effect.
+- `package.json#scripts.format` is now a real alias (`npm run --silent lint:fix`) instead of a copy of the same `eslint --fix` invocation, eliminating the drift risk.
+- `package.json#scripts.prepublishOnly` now also runs `npm audit --omit=dev --audit-level=moderate`, so a moderate-or-higher production advisory blocks `npm publish` locally as well as in CI.
+- `package.json#scripts.test`, `test:coverage`, `test:integration` are wrapped in `timeout 600` so a runaway local test run is killed after 10 minutes (CI already has its own `timeout-minutes`).
+- Per-file JSDoc on `src/utils/date.ts` (timezone side-effect on `luxon.Settings.defaultZone`) and `src/utils/tool-response.ts` (`toolSuccess` / `toolError` envelope contract).
+- `test/utils/pagination.test.ts`, `test/utils/sql-params.test.ts`, `test/utils/tool-response.test.ts` (45 new assertions) plus added cases in `redact.test.ts` and `sql-identifier.test.ts`. Suite total: 127 → 179 unit tests.
+
+### Changed
+
+- README / README-ru: `POSTGRES_MCP_OUTPUT_DIRS` carries an explicit security warning enumerating the system paths an operator must not include in the whitelist (`/`, `/etc`, `/usr`, `/var`, `/var/log`, `/root`, `/home`, `$HOME`, repository source root).
+- README / README-ru: Project Structure now documents the gitignored `coverage/`, `temp/` and `docs/` trees so a fresh checkout doesn't surprise contributors.
+- README / README-ru: Limitations of Read-Only Mode gains a Privilege Boundary subsection (auth/authz delegated to the PG role; least-privilege guidance for production); Connection Pool Behavior gains a latency tip for `--pool-size 2-4` when the MCP host issues parallel tool calls.
+- AGENTS.md: documents the rationale behind `overrides.ip-address ^10.1.1` (GHSA-v2v4-37r5-5v8g, XSS in `Address6` HTML methods, vulnerable `<= 10.1.0`); npm strict-mode rejects comment keys in `overrides`, so the note lives outside the manifest.
+- TODO.md: deferred follow-ups recorded — secret scanning in CI (gitleaks vs GitHub native), and `show-object` overload pagination + `includeDefinition` flag.
+- Removed the legacy `Configuration for Qwen Code` snippet (and `QWEN.md`); the generic stdio/npx setup already documented for VS Code Cline applies to any MCP host.
+
+### Breaking
+
+- **`show-object` with `type='function'` no longer returns procedures.** The SQL now filters by `prokind='f'` (and the new `type='procedure'` filters by `prokind='p'`), so a query like `show-object schema=foo name=bar type=function` will return "does not exist" for a procedure named `bar`. Callers that relied on the previous mixed behaviour must call `show-object` with the matching `type` explicitly.
 
 ## [0.4.0] - 2026-05-07
 
