@@ -7,8 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Table of Contents
 
+- [0.3.0](#030---2026-05-06)
 - [0.2.0](#020---2026-05-06)
 - [0.1.0](#010)
+
+## [0.3.0] - 2026-05-06
+
+> **Breaking changes:** `execute-sql` now refuses destructive statements (DROP/TRUNCATE/ALTER, UPDATE/DELETE without WHERE) without an explicit confirmation literal; `index-operation` `operation=drop` requires the same literal. See *Breaking* below.
+
+### Added
+
+- DX scaffolding: `.nvmrc` (Node 24), `.editorconfig`, `tsconfig.base.json` shared compiler options, `.github/dependabot.yml` with grouped weekly bumps for npm (types/eslint/vitest) and github-actions.
+- Full `ToolAnnotations` set on every tool (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`) so MCP hosts can reason about confirmation flows without parsing descriptions.
+- `src/utils/confirmation.ts` with the shared destructive confirmation literal `I_KNOW_THIS_IS_DESTRUCTIVE` and an AST-based `classifyDestructive(query)` helper backed by `pgsql-parser`.
+
+### Changed
+
+- ESLint: switched to `typescript-eslint` v8 `projectService: true` (single shared TS server, lower memory than `parserOptions.project`); added `--cache --cache-location node_modules/.cache/eslint/`.
+- Tsconfig layout reorganised mongo-style to support `projectService`: `tsconfig.json` includes src + tests + configs (noEmit, used by typecheck and projectService), new `tsconfig.build.json` for production sources only, removed the standalone `tsconfig.eslint.json`.
+- `streamPostgresQueryToFile` and `writeArrayToFile` open output files with `{ flags: 'wx' }`. Concurrent calls targeting the same `filePath` now get `EEXIST` instead of silently clobbering each other.
+
+### Breaking
+
+- `execute-sql` now classifies its query via `pgsql-parser` and refuses to execute destructive statements (`DROP*`, `TRUNCATE`, `ALTER` family, plus `UPDATE` / `DELETE` without a `WHERE` clause) unless the caller passes `confirmation: "I_KNOW_THIS_IS_DESTRUCTIVE"`. Read-only mode still blocks writes at the server side via PG error 25006; this is the second gate for read-write deployments.
+- `index-operation` `operation=drop` now requires `confirmation: "I_KNOW_THIS_IS_DESTRUCTIVE"`. `create` and `list` are unaffected.
+- `streamPostgresQueryToFile` / `writeArrayToFile` no longer overwrite an existing target file. The previous behaviour was undocumented; any caller relying on it must now pick a unique `filePath` per invocation (timestamp, uuid).
 
 ## [0.2.0] - 2026-05-06
 
