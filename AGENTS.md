@@ -76,6 +76,8 @@
 - `test/setup.ts` and `test-integration/setup.ts` use a hard-coded `test:test` PostgreSQL DSN. These credentials exist **only** to talk to the local container defined in [`compose.yaml`](compose.yaml), which binds the database to `127.0.0.1:55432` (not `0.0.0.0`).
 - **Never use `test:test` against any non-test PostgreSQL instance.** Real environments must always use `POSTGRES_MCP_CONNECTION_STRING` set to a credential pulled from a secret manager.
 - If you need to run integration tests against a different database, set `POSTGRES_MCP_CONNECTION_STRING` in the shell *before* running `npm run test:integration` — the test setup falls back to the hardcoded value only when the env var is empty.
+- **Container binding is not optional.** `compose.yaml` MUST keep its `ports: ["127.0.0.1:55432:5432"]` form (loopback only). Never change the binding to `0.0.0.0:55432:5432` or remove the IP prefix — that would expose the throwaway `test:test` credentials to every reachable network interface (LAN, VPN, container bridge). If you genuinely need to reach the test container from another host, set up an SSH tunnel or change the credentials first; do not edit the binding.
+- The same `test:test` pair is hard-coded in `.github/workflows/ci.yml` and `.github/workflows/publish.yml` services. That's safe because GitHub Actions service containers are isolated to the job's network namespace and torn down with the job. Do not copy this pattern into self-hosted runners or any environment where a CI service container could be reached from outside the job sandbox.
 
 ## Git Commands
 - **CRITICAL: Always use `--no-pager` flag with git commands** to prevent interactive pager (less/more) from blocking terminal output.

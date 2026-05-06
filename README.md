@@ -23,6 +23,12 @@ MCP server for comprehensive PostgreSQL integration with the following capabilit
 - [Requirements](#requirements)
 - [Configuration for Qwen Code](#configuration-for-qwen-code)
 - [Configuration for VS Code Cline](#configuration-for-vs-code-cline)
+- [Development](#development)
+  - [Project Structure](#project-structure)
+  - [Build](#build)
+  - [Testing](#testing)
+  - [Linting and Formatting](#linting-and-formatting)
+  - [Working with the Local PostgreSQL Container](#working-with-the-local-postgresql-container)
 - [MCP Tools](#mcp-tools)
   - [Read-Only Mode Tools](#read-only-mode-tools)
   - [Non-Read-Only Mode Tools](#non-read-only-mode-tools)
@@ -86,6 +92,70 @@ To use this MCP server with [Cline](https://github.com/cline/cline) extension in
 ```
 
 **Note:** This configuration uses npx to run the published package. For local development, use `"command": "node"` with `"args": ["/absolute/path/to/postgres-mcp/dist/index.js"]`. The `POSTGRES_MCP_TIMEZONE` environment variable is optional. The pool size is controlled by the CLI flag `--pool-size` (default `1`); it cannot be changed via environment variables.
+
+## Development
+
+This section is for contributors and operators running the server from a checkout. Detailed style and review notes for AI agents live in [AGENTS.md](AGENTS.md).
+
+```bash
+git clone https://github.com/VitalyOstanin/postgres-mcp.git
+cd postgres-mcp
+npm install
+```
+
+Node.js 24 is the recommended development version (see [.nvmrc](.nvmrc)). The `engines.node` floor is `>=22` so the package still publishes for Node 22 LTS, and CI runs the matrix on both 22.x and 24.x.
+
+### Project Structure
+
+- `index.ts` — CLI entry point (`bin: postgres-mcp`); parses arguments, wires the stdio transport, registers signal handlers.
+- `src/server.ts` — `PostgreSQLServer` class; owns the pool lifecycle and registers all MCP tools.
+- `src/postgres-client.ts` — thin async wrapper over `pg.Pool` (lifecycle, `executeQuery`, `streamQuery`, `withTransaction`).
+- `src/tools/` — one file per MCP tool (`connect`, `disconnect`, `service-info`, `list-schemas`, `list-objects`, `show-object`, `execute-sql`, `index-operation`).
+- `src/utils/` — shared helpers: connection guard, redaction, identifier quoting, pagination, SQL-param validation, file-path safety, streaming, query analysis.
+- `src/defaults.ts` — single source of truth for default pool size, timeouts, timezone, pagination bounds.
+- `test/` — vitest unit suite (mocks the pool); `test-integration/` — vitest integration suite that talks to a real PostgreSQL container.
+
+### Build
+
+| Command           | What it does                                                                 |
+| ----------------- | ---------------------------------------------------------------------------- |
+| `npm run build`   | Compile TypeScript with `tsconfig.build.json` into `dist/`. Sets the `+x` bit and copies `package.json` to `dist/` via `postbuild`. |
+| `npm run dev`     | TypeScript watch (`tsc --watch`). The MCP stdio server itself is not hot-reloaded — restart the MCP client after rebuilds. |
+| `npm start`       | Run the built server (`node dist/index.js`). Use after `npm run build`.      |
+| `npm run typecheck` | `tsc -p tsconfig.json --noEmit` (covers `src/`, `test/`, `test-integration/`, top-level files). |
+
+### Testing
+
+| Command                              | What it does                                                                     |
+| ------------------------------------ | -------------------------------------------------------------------------------- |
+| `npm test`                           | Run the unit suite (`vitest run` against `test/`).                               |
+| `npm run test:watch`                 | Run unit tests in watch mode.                                                    |
+| `npm run test:coverage`              | Run unit tests with coverage; HTML report lands in `coverage/index.html`.        |
+| `npm run test:integration`           | Run the integration suite against the local PostgreSQL container.                |
+| `npm run test:integration:up`        | `podman-compose -f compose.yaml up -d` — start the container.                    |
+| `npm run test:integration:down`      | `podman-compose -f compose.yaml down` — stop and remove the container.           |
+
+The unit suite uses a pool mock (`test/__mocks__/postgres-client.mock.ts`); the integration suite needs a running PostgreSQL container exposed on `127.0.0.1:55432` — start it with `npm run test:integration:up` before `npm run test:integration`.
+
+### Linting and Formatting
+
+Formatting is enforced by ESLint stylistic rules (no separate Prettier configuration). Run:
+
+| Command                | What it does                                              |
+| ---------------------- | --------------------------------------------------------- |
+| `npm run lint`         | Lint `.ts` / `.mts` files via the flat-config in `eslint.config.mjs`. |
+| `npm run lint:fix`     | Same as `lint`, but auto-fixes safe rule violations.       |
+| `npm run format`       | Alias of `lint:fix`. Use whichever name you prefer.        |
+
+### Working with the Local PostgreSQL Container
+
+[`compose.yaml`](compose.yaml) declares a PostgreSQL 18 service bound to `127.0.0.1:55432` with the throwaway credentials `test:test`. These credentials are intentional for the local container and the matching CI service — they are also referenced from [`test/setup.ts`](test/setup.ts) and [`test-integration/setup.ts`](test-integration/setup.ts). Do not change the binding to `0.0.0.0` and do not copy `compose.yaml` into a production environment.
+
+```bash
+npm run test:integration:up      # start container in background
+npm run test:integration         # run integration tests against it
+npm run test:integration:down    # tear it down when finished
+```
 
 ## MCP Tools
 

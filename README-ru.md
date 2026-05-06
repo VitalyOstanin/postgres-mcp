@@ -23,6 +23,12 @@ MCP сервер для всесторонней интеграции с Postgre
 - [Требования](#требования)
 - [Конфигурация для Qwen Code](#конфигурация-для-qwen-code)
 - [Конфигурация для VS Code Cline](#конфигурация-для-vs-code-cline)
+- [Разработка](#разработка)
+  - [Структура проекта](#структура-проекта)
+  - [Сборка](#сборка)
+  - [Тесты](#тесты)
+  - [Линт и форматирование](#линт-и-форматирование)
+  - [Локальный контейнер PostgreSQL](#локальный-контейнер-postgresql)
 - [MCP Инструменты](#mcp-инструменты)
   - [Инструменты для режима только для чтения](#инструменты-для-режима-только-для-чтения)
   - [Инструменты для режима с возможностью записи](#инструменты-для-режима-с-возможностью-записи)
@@ -86,6 +92,70 @@ MCP сервер для всесторонней интеграции с Postgre
 ```
 
 **Примечание:** Эта конфигурация использует npx для запуска опубликованного пакета. Переменная окружения `POSTGRES_MCP_TIMEZONE` опциональна. Размер пула задаётся CLI-флагом `--pool-size` (по умолчанию `1`); через переменные окружения он не настраивается.
+
+## Разработка
+
+Раздел для разработчиков и операторов, которые работают со сборкой из репозитория. Подробные правила стиля и code review для AI-агентов лежат в [AGENTS.md](AGENTS.md).
+
+```bash
+git clone https://github.com/VitalyOstanin/postgres-mcp.git
+cd postgres-mcp
+npm install
+```
+
+Рекомендуемая для разработки версия Node.js — 24 (см. [.nvmrc](.nvmrc)). Минимум в `engines.node` зафиксирован на `>=22`, чтобы пакет публиковался для Node 22 LTS; CI прогоняет матрицу на 22.x и 24.x.
+
+### Структура проекта
+
+- `index.ts` — CLI-точка входа (`bin: postgres-mcp`); парсит аргументы, подключает stdio-транспорт, регистрирует обработчики сигналов.
+- `src/server.ts` — класс `PostgreSQLServer`; владеет жизненным циклом пула и регистрирует все MCP-инструменты.
+- `src/postgres-client.ts` — тонкая async-обёртка над `pg.Pool` (lifecycle, `executeQuery`, `streamQuery`, `withTransaction`).
+- `src/tools/` — по одному файлу на MCP-инструмент (`connect`, `disconnect`, `service-info`, `list-schemas`, `list-objects`, `show-object`, `execute-sql`, `index-operation`).
+- `src/utils/` — общие helper-ы: connection guard, redaction, identifier quoting, pagination, валидация SQL-параметров, безопасные пути для файлов, streaming, разбор запросов.
+- `src/defaults.ts` — единый источник дефолтов для пула, таймаутов, timezone, лимитов пагинации.
+- `test/` — unit-тесты vitest (мокают пул); `test-integration/` — интеграционные тесты vitest, идущие в реальный контейнер PostgreSQL.
+
+### Сборка
+
+| Команда             | Что делает                                                                          |
+| ------------------- | ----------------------------------------------------------------------------------- |
+| `npm run build`     | Компиляция TypeScript по `tsconfig.build.json` в `dist/`. `postbuild` ставит `+x` и копирует `package.json` в `dist/`. |
+| `npm run dev`       | Watch-режим TypeScript (`tsc --watch`). Сам stdio MCP-сервер не перезапускается — после пересборки нужно вручную перезапустить MCP-клиент. |
+| `npm start`         | Запустить собранный сервер (`node dist/index.js`). После `npm run build`.            |
+| `npm run typecheck` | `tsc -p tsconfig.json --noEmit` (покрывает `src/`, `test/`, `test-integration/`, файлы корня). |
+
+### Тесты
+
+| Команда                          | Что делает                                                                  |
+| -------------------------------- | --------------------------------------------------------------------------- |
+| `npm test`                       | Unit-тесты (`vitest run` по `test/`).                                       |
+| `npm run test:watch`             | Unit-тесты в watch-режиме.                                                  |
+| `npm run test:coverage`          | Unit-тесты с coverage; HTML-отчёт в `coverage/index.html`.                  |
+| `npm run test:integration`       | Интеграционные тесты по локальному контейнеру PostgreSQL.                   |
+| `npm run test:integration:up`    | `podman-compose -f compose.yaml up -d` — поднять контейнер.                 |
+| `npm run test:integration:down`  | `podman-compose -f compose.yaml down` — погасить и удалить контейнер.       |
+
+Unit-набор использует мок пула (`test/__mocks__/postgres-client.mock.ts`); интеграционному набору нужен запущенный PostgreSQL на `127.0.0.1:55432` — поднимите его через `npm run test:integration:up`, затем `npm run test:integration`.
+
+### Линт и форматирование
+
+Форматирование зашито в стилистические правила ESLint (отдельной конфигурации Prettier нет). Команды:
+
+| Команда             | Что делает                                                       |
+| ------------------- | ---------------------------------------------------------------- |
+| `npm run lint`      | Прогнать ESLint по `.ts` / `.mts` (плоский конфиг `eslint.config.mjs`). |
+| `npm run lint:fix`  | То же самое плюс автофиксы безопасных правил.                   |
+| `npm run format`    | Алиас `lint:fix`. Используйте удобное вам имя.                  |
+
+### Локальный контейнер PostgreSQL
+
+[`compose.yaml`](compose.yaml) объявляет PostgreSQL 18 с биндингом на `127.0.0.1:55432` и одноразовыми учётными данными `test:test`. Эти учётные данные намеренные — они же используются в CI-сервисе и в `test/setup.ts` / `test-integration/setup.ts`. Не меняйте binding на `0.0.0.0` и не копируйте `compose.yaml` в production-окружение.
+
+```bash
+npm run test:integration:up      # поднять контейнер в фоне
+npm run test:integration         # прогнать интеграционные тесты
+npm run test:integration:down    # остановить и удалить контейнер
+```
 
 ## MCP Инструменты
 
