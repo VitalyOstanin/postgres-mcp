@@ -40,7 +40,12 @@ describe('Disconnect Tool', () => {
       expect.objectContaining({
         title: 'Disconnect from PostgreSQL',
         description: expect.stringContaining('Disconnect from PostgreSQL'),
-        annotations: { readOnlyHint: false },
+        annotations: {
+          readOnlyHint: false,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: true,
+        },
       }),
       expect.any(Function),
     );

@@ -31,6 +31,17 @@ export function registerExecuteSQLTool(server: McpServer, client: PostgreSQLClie
         'Limitations: in read-only mode the session is opened with `default_transaction_read_only=on`; data-modifying statements fail with PostgreSQL error 25006. No automatic LIMIT is applied — add one for large tables.',
       ].join(' '),
       inputSchema: executeSQLSchema.shape,
+      annotations: {
+        // execute-sql can run any DML/DDL statement, so it has to be
+        // declared write-capable and potentially destructive. The actual
+        // safety gate lives in the readonly mode (PostgreSQL error 25006
+        // blocks writes when default_transaction_read_only=on) and in
+        // tooling around dangerous SQL operations.
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
     },
     async (params: ExecuteSQLParams) => {
       const { query, params: queryParams = [], saveToFile, forceSaveToFile } = params;

@@ -33,8 +33,13 @@ export function registerConnectTool(server: McpServer, client: PostgreSQLClient,
       inputSchema: connectSchema.shape,
       annotations: {
         // connect mutates server state (opens a pooled TCP connection,
-        // stores credentials), so it is not a read-only operation.
+        // stores credentials), so it is not a read-only operation. It is
+        // idempotent: calling connect again with the same connection
+        // string short-circuits to a no-op (see fast-path below).
         readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
       },
     },
     async (params: ConnectParams, _extra) => {

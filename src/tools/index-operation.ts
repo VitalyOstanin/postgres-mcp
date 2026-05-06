@@ -56,6 +56,16 @@ export function registerIndexOperationTool(server: McpServer, client: PostgreSQL
         'Limitations: in read-only mode `create` and `drop` are rejected — only `list` is permitted. `concurrently` cannot be combined with `unique` for CREATE INDEX (PostgreSQL constraint).',
       ].join(' '),
       inputSchema: indexOperationSchema.shape,
+      annotations: {
+        // Combined create/drop/list tool: operation=list is read-only,
+        // create/drop are write-side and drop is destructive. The hints
+        // describe the worst case so MCP hosts can apply the strictest
+        // confirmation flow regardless of which subcommand is chosen.
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
     },
     async (params: IndexOperationParams) => {
       const { operation, schema = 'public' } = params;

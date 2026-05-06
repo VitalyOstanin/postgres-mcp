@@ -24,6 +24,9 @@ export function registerListSchemasTool(server: McpServer, client: PostgreSQLCli
       inputSchema: listSchemasSchema.shape,
       annotations: {
         readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
       },
     },
     async (params: ListSchemasParams, _extra) => {

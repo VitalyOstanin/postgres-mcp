@@ -27,6 +27,11 @@ export function registerServiceInfoTool(server: McpServer, client: PostgreSQLCli
       inputSchema: serviceInfoSchema.shape,
       annotations: {
         readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        // service-info reports server-internal state only — it does not
+        // touch PostgreSQL — so the answer depends on no external system.
+        openWorldHint: false,
       },
     },
     async (_params, _extra) => {

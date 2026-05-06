@@ -27,6 +27,9 @@ export function registerListObjectsTool(server: McpServer, client: PostgreSQLCli
       inputSchema: listObjectsSchema.shape,
       annotations: {
         readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
       },
     },
     async (params: ListObjectsParams) => {

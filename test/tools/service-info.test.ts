@@ -47,7 +47,12 @@ describe('ServiceInfo Tool', () => {
       expect.objectContaining({
         title: 'Service Information',
         description: expect.stringContaining('Get PostgreSQL service information'),
-        annotations: { readOnlyHint: true },
+        annotations: {
+          readOnlyHint: true,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: false,
+        },
       }),
       expect.any(Function),
     );

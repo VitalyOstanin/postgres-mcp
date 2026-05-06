@@ -62,7 +62,12 @@ describe('Connect Tool', () => {
       expect.objectContaining({
         title: 'Connect to PostgreSQL',
         description: expect.stringContaining('Establish connection to PostgreSQL'),
-        annotations: { readOnlyHint: false },
+        annotations: {
+          readOnlyHint: false,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: true,
+        },
       }),
       expect.any(Function),
     );

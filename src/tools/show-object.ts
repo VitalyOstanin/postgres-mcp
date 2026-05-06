@@ -77,6 +77,9 @@ export function registerShowObjectTool(server: McpServer, client: PostgreSQLClie
       inputSchema: showObjectSchema.shape,
       annotations: {
         readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
       },
     },
     async (params: ShowObjectParams) => {

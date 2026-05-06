@@ -23,8 +23,13 @@ export function registerDisconnectTool(server: McpServer, client: PostgreSQLClie
       ].join(' '),
       inputSchema: disconnectSchema.shape,
       annotations: {
-        // disconnect tears down the pool — a server-state mutation, not a read.
+        // disconnect tears down the pool — a server-state mutation, not a
+        // read. Idempotent: a second call when already disconnected returns
+        // success without error.
         readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
       },
     },
     async (_params, _extra) => {

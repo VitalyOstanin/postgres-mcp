@@ -40,7 +40,12 @@ describe('ListSchemas Tool', () => {
       expect.objectContaining({
         title: 'List Schemas',
         description: expect.stringContaining('List all schemas'),
-        annotations: { readOnlyHint: true },
+        annotations: {
+          readOnlyHint: true,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: true,
+        },
       }),
       expect.any(Function),
     );
