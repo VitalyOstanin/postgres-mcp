@@ -21,7 +21,6 @@ MCP сервер для всесторонней интеграции с Postgre
 ## Содержание
 
 - [Требования](#требования)
-- [Конфигурация для Qwen Code](#конфигурация-для-qwen-code)
 - [Конфигурация для VS Code Cline](#конфигурация-для-vs-code-cline)
 - [Разработка](#разработка)
   - [Структура проекта](#структура-проекта)
@@ -47,26 +46,6 @@ MCP сервер для всесторонней интеграции с Postgre
   - `--idle-timeout <ms>` — таймаут простоя соединений в пуле (по умолчанию: 30000).
   - `--connection-timeout <ms>` — таймаут начального подключения (по умолчанию: 10000).
   - `--auto-connect` — подключаться при старте с использованием `POSTGRES_MCP_CONNECTION_STRING`. По умолчанию: выключено.
-
-## Конфигурация для Qwen Code
-
-Чтобы использовать этот MCP сервер с [Qwen Code](https://qwenlm.github.io/qwen-code-docs/), добавьте в `~/.qwen/settings.json`:
-
-```json
-{
-  "mcpServers": {
-    "postgres-mcp": {
-      "command": "npx",
-      "args": ["-y", "@vitalyostanin/postgres-mcp@latest"],
-      "env": {
-        "POSTGRES_MCP_CONNECTION_STRING": "postgresql://localhost:5432/postgres"
-      }
-    }
-  }
-}
-```
-
-**Примечание:** Эта конфигурация использует npx для запуска опубликованного пакета. Переменная окружения `POSTGRES_MCP_TIMEZONE` опциональна. Размер пула задаётся CLI-флагом `--pool-size` (по умолчанию `1`); через переменные окружения он не настраивается.
 
 ## Конфигурация для VS Code Cline
 

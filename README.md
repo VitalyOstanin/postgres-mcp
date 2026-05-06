@@ -21,7 +21,6 @@ MCP server for comprehensive PostgreSQL integration with the following capabilit
 ## Table of Contents
 
 - [Requirements](#requirements)
-- [Configuration for Qwen Code](#configuration-for-qwen-code)
 - [Configuration for VS Code Cline](#configuration-for-vs-code-cline)
 - [Development](#development)
   - [Project Structure](#project-structure)
@@ -47,26 +46,6 @@ MCP server for comprehensive PostgreSQL integration with the following capabilit
   - `--idle-timeout <ms>` — idle timeout for pooled connections (default: 30000).
   - `--connection-timeout <ms>` — initial connection timeout (default: 10000).
   - `--auto-connect` — connect on startup using `POSTGRES_MCP_CONNECTION_STRING`. Default: off.
-
-## Configuration for Qwen Code
-
-To use this MCP server with [Qwen Code](https://qwenlm.github.io/qwen-code-docs/), add to `~/.qwen/settings.json`:
-
-```json
-{
-  "mcpServers": {
-    "postgres-mcp": {
-      "command": "npx",
-      "args": ["-y", "@vitalyostanin/postgres-mcp@latest"],
-      "env": {
-        "POSTGRES_MCP_CONNECTION_STRING": "postgresql://localhost:5432/postgres"
-      }
-    }
-  }
-}
-```
-
-**Note:** This configuration uses npx to run the published package. For local development, use `"command": "node"` with `"args": ["/absolute/path/to/postgres-mcp/dist/index.js"]`. The `POSTGRES_MCP_TIMEZONE` environment variable is optional. The pool size is controlled by the CLI flag `--pool-size` (default `1`); it cannot be changed via environment variables.
 
 ## Configuration for VS Code Cline
 
