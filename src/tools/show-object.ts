@@ -1,7 +1,8 @@
 import { z } from 'zod';
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { PostgreSQLClient } from '../postgres-client.js';
 import { toolSuccess, toolError } from '../utils/tool-response.js';
+import { requireConnection } from '../utils/connection-guard.js';
 
 const showObjectSchema = z.object({
   schema: z.string().optional().default('public').describe('Schema name where the object is located'),
@@ -63,6 +64,10 @@ interface FunctionWithOverloads {
   overloads: FunctionOverload[];
 }
 
+/**
+ * Register the `show-object` MCP tool. Returns column metadata for tables and
+ * views, or full overload definitions for functions/procedures.
+ */
 export function registerShowObjectTool(server: McpServer, client: PostgreSQLClient): void {
   server.registerTool(
     'show-object',
@@ -83,11 +88,11 @@ export function registerShowObjectTool(server: McpServer, client: PostgreSQLClie
       },
     },
     async (params: ShowObjectParams) => {
-      const { schema = 'public', name, type } = params;
+      const guard = requireConnection(client);
 
-      if (!client.isConnectedToPostgreSQL()) {
-        return toolError(new Error('Not connected to PostgreSQL. Please connect first.'));
-      }
+      if (guard) return guard;
+
+      const { schema = 'public', name, type } = params;
 
       try {
         let result: TableWithColumns | FunctionWithOverloads | null = null;

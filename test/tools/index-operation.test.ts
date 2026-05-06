@@ -217,9 +217,13 @@ describe('Index Operation Tool', () => {
     });
 
     it('emits CONCURRENTLY in the DROP when concurrently=true', async () => {
+      // Concurrent path: lookup → DROP CONCURRENTLY → post-drop OID
+      // verification (extra SELECT EXISTS to confirm we removed the OID we
+      // looked up, not a replacement created mid-flight).
       (mockClient.executeQuery as Mock)
-        .mockResolvedValueOnce([{ table_name: 'users' }])
-        .mockResolvedValueOnce([]);
+        .mockResolvedValueOnce([{ oid: 12345, table_name: 'users' }])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ exists: false }]);
 
       await toolFunction({
         operation: 'drop',
@@ -229,10 +233,11 @@ describe('Index Operation Tool', () => {
         confirmation: 'I_KNOW_THIS_IS_DESTRUCTIVE',
       });
 
-      const {calls} = (mockClient.executeQuery as Mock).mock;
-      const dropCall = calls[calls.length - 1] as [string];
+      const calls = (mockClient.executeQuery as Mock).mock.calls as Array<[string, unknown[]?]>;
+      const dropCall = calls.find(([sql]) => sql.includes('DROP INDEX'));
 
-      expect(dropCall[0]).toMatch(/DROP INDEX\s+CONCURRENTLY/);
+      expect(dropCall).toBeDefined();
+      expect(dropCall?.[0]).toMatch(/DROP INDEX\s+CONCURRENTLY/);
     });
 
     it('drops without table-check when table is omitted', async () => {

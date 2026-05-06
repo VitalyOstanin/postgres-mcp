@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from 'vitest';
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { MockPostgreSQLClient } from '../__mocks__/postgres-client.mock';
 import { resetMockClient, getMockClient } from '../utils/test-helpers';
 import { registerConnectTool } from '../../src/tools/connect';
@@ -104,20 +104,22 @@ describe('Connect Tool', () => {
     );
   });
 
-  it('returns success when already connected to the same connection string', async () => {
+  it('returns success when already connected with the same connection string and settings', async () => {
     // Get the instance that will be used by the tool
     const instance = getMockClient();
 
-    // Mock client is already connected
     instance.setConnected(true);
 
-    // Mock the getConnectionInfo to return connected state
-    vi.spyOn(instance, 'getConnectionInfo').mockReturnValue({
-      isConnected: true,
-    });
-
-    // Mock the getConnectionString to return the expected connection string
+    // The tool now compares the full settings tuple before short-circuiting,
+    // so every getter must report the value the tool is about to ask for —
+    // otherwise the tool would (correctly) decide that something drifted and
+    // reconnect.
+    vi.spyOn(instance, 'getConnectionInfo').mockReturnValue({ isConnected: true });
     vi.spyOn(instance, 'getConnectionString').mockReturnValue(mockEnv.POSTGRES_MCP_CONNECTION_STRING);
+    vi.spyOn(instance, 'isReadonly').mockReturnValue(defaults.readonlyMode);
+    vi.spyOn(instance, 'getPoolSize').mockReturnValue(defaults.poolSize);
+    vi.spyOn(instance, 'getIdleTimeoutMillis').mockReturnValue(defaults.idleTimeoutMillis);
+    vi.spyOn(instance, 'getConnectionTimeoutMillis').mockReturnValue(defaults.connectionTimeoutMillis);
 
     // Get the registered tool function
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -134,13 +136,53 @@ describe('Connect Tool', () => {
     // Call the tool function
     const result = await toolFunction!({}, {});
 
-    // Verify success response for already connected
     expect(result).toEqual(
       toolSuccess({
         success: true,
-        message: 'Already connected to PostgreSQL with the same connection string',
+        message: 'Already connected to PostgreSQL with the same connection string and settings',
         isConnected: true,
       }),
+    );
+    // Settings already matched, so the tool must NOT have reopened the pool.
+    expect(instance.connect).not.toHaveBeenCalled();
+  });
+
+  it('reconnects when readonly setting differs from the current pool', async () => {
+    const instance = getMockClient();
+
+    instance.setConnected(true);
+    vi.spyOn(instance, 'getConnectionInfo').mockReturnValue({ isConnected: true });
+    vi.spyOn(instance, 'getConnectionString').mockReturnValue(mockEnv.POSTGRES_MCP_CONNECTION_STRING);
+    // Readonly drift: client is currently read-write, defaults ask for read-only.
+    vi.spyOn(instance, 'isReadonly').mockReturnValue(false);
+    vi.spyOn(instance, 'getPoolSize').mockReturnValue(defaults.poolSize);
+    vi.spyOn(instance, 'getIdleTimeoutMillis').mockReturnValue(defaults.idleTimeoutMillis);
+    vi.spyOn(instance, 'getConnectionTimeoutMillis').mockReturnValue(defaults.connectionTimeoutMillis);
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let toolFunction: any;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    mockServer.registerTool = vi.fn().mockImplementation((_name: unknown, _config: unknown, func: any) => {
+      toolFunction = func;
+    });
+    registerConnectTool(mockServer as unknown as McpServer, instance, defaults);
+
+    const result = await toolFunction!({}, {});
+
+    expect(result).toEqual(
+      toolSuccess({
+        success: true,
+        message: 'Connected to PostgreSQL successfully using POSTGRES_MCP_CONNECTION_STRING environment variable',
+        isConnected: true,
+      }),
+    );
+    expect(instance.connect).toHaveBeenCalledOnce();
+    expect(instance.connect).toHaveBeenCalledWith(
+      defaults.readonlyMode,
+      defaults.poolSize,
+      defaults.idleTimeoutMillis,
+      defaults.connectionTimeoutMillis,
     );
   });
 

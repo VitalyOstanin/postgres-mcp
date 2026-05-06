@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { PostgreSQLClient } from '../postgres-client.js';
 import { toolSuccess, toolError } from '../utils/tool-response.js';
 
@@ -8,8 +8,10 @@ const disconnectSchema = z.object({
 
 export type DisconnectParams = z.infer<typeof disconnectSchema>;
 
-// Export the registration function for the server
-// The client parameter is required to match the registration function signature used by other tools
+/**
+ * Register the `disconnect` MCP tool. Closes the PostgreSQL pool and clears
+ * cached connection state. No-op when the server is already disconnected.
+ */
 export function registerDisconnectTool(server: McpServer, client: PostgreSQLClient): void {
   server.registerTool(
     'disconnect',

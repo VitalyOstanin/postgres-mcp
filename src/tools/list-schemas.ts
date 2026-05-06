@@ -1,15 +1,23 @@
 import { z } from 'zod';
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { PostgreSQLClient } from '../postgres-client.js';
 import { toolSuccess, toolError } from '../utils/tool-response.js';
+import { requireConnection } from '../utils/connection-guard.js';
+import { paginationLimitSchema, paginationOffsetSchema } from '../utils/pagination.js';
+import { DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT } from '../defaults.js';
 
 const listSchemasSchema = z.object({
-  limit: z.number().int().min(1).max(1000).optional().default(100).describe('Maximum number of schemas to return (default: 100, max: 1000)'),
-  offset: z.number().int().min(0).optional().default(0).describe('Number of schemas to skip for pagination (default: 0)'),
+  limit: paginationLimitSchema('schemas'),
+  offset: paginationOffsetSchema('schemas'),
 });
 
 export type ListSchemasParams = z.infer<typeof listSchemasSchema>;
 
+/**
+ * Register the `list-schemas` MCP tool. Lists user-visible PostgreSQL
+ * schemas (excludes the built-in catalog schemas) with offset/limit
+ * pagination.
+ */
 export function registerListSchemasTool(server: McpServer, client: PostgreSQLClient): void {
   server.registerTool(
     'list-schemas',
@@ -19,7 +27,7 @@ export function registerListSchemasTool(server: McpServer, client: PostgreSQLCli
         'List all schemas in the PostgreSQL database (excludes the system schemas information_schema, pg_catalog, pg_toast).',
         'Use for: discovering available schemas before drilling down into objects with `list-objects`.',
         'Returns: `schemas` (array of names), `count`, pagination metadata (`limit`, `offset`, `hasMore`).',
-        'Limitations: results are paginated (default limit 100, max 1000); use `offset` to walk further pages.',
+        `Limitations: results are paginated (default limit ${DEFAULT_PAGE_LIMIT}, max ${MAX_PAGE_LIMIT}); use \`offset\` to walk further pages.`,
       ].join(' '),
       inputSchema: listSchemasSchema.shape,
       annotations: {
@@ -30,11 +38,11 @@ export function registerListSchemasTool(server: McpServer, client: PostgreSQLCli
       },
     },
     async (params: ListSchemasParams, _extra) => {
-      const { limit, offset } = params;
+      const guard = requireConnection(client);
 
-      if (!client.isConnectedToPostgreSQL()) {
-        return toolError(new Error('Not connected to PostgreSQL. Please connect first.'));
-      }
+      if (guard) return guard;
+
+      const { limit, offset } = params;
 
       try {
         // Fetch one extra row so we can report hasMore without a second query.

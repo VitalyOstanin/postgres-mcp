@@ -1,8 +1,8 @@
-import { Transform, type TransformCallback } from 'stream';
-import { once } from 'events';
-import { createWriteStream } from 'fs';
-import { mkdir } from 'fs/promises';
-import { dirname } from 'path';
+import { Transform, type TransformCallback } from 'node:stream';
+import { once } from 'node:events';
+import { createWriteStream } from 'node:fs';
+import { mkdir } from 'node:fs/promises';
+import { dirname } from 'node:path';
 import { generateTempFilePath } from './streaming.js';
 
 /**
@@ -183,6 +183,6 @@ export async function writeArrayToFile(
 /**
  * Generate a temporary file path with the requested format extension.
  */
-export function generatePostgresTempFilePath(format: 'jsonl' | 'json' = 'jsonl'): string {
+export async function generatePostgresTempFilePath(format: 'jsonl' | 'json' = 'jsonl'): Promise<string> {
   return generateTempFilePath(format);
 }

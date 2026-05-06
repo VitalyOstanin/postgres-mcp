@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { PostgreSQLClient } from '../postgres-client.js';
 import { toolSuccess } from '../utils/tool-response.js';
 import { redactConnectionString } from '../utils/redact.js';
@@ -11,8 +11,11 @@ const serviceInfoSchema = z.object({
 
 export type ServiceInfoParams = z.infer<typeof serviceInfoSchema>;
 
-// Export the registration function for the server
-// The client parameter is required to match the registration function signature used by other tools
+/**
+ * Register the `service-info` MCP tool. Reports server-internal state
+ * (connection status, readonly mode, pool/timeout settings, timezone). Does
+ * not query PostgreSQL.
+ */
 export function registerServiceInfoTool(server: McpServer, client: PostgreSQLClient): void {
   server.registerTool(
     'service-info',
