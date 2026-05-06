@@ -106,6 +106,7 @@ describe('index-operation (integration)', () => {
       schema: SCHEMA,
       table: 'items',
       name: 'items_sku_uq',
+      confirmation: 'I_KNOW_THIS_IS_DESTRUCTIVE',
     }));
 
     expect(dropped).toMatchObject({ operation: 'drop', name: 'items_sku_uq' });
@@ -119,6 +120,7 @@ describe('index-operation (integration)', () => {
       table: 'items',
       name: 'definitely_not_there',
       ifExists: true,
+      confirmation: 'I_KNOW_THIS_IS_DESTRUCTIVE',
     }));
 
     expect(result).toMatchObject({ operation: 'drop', name: 'definitely_not_there' });
@@ -144,6 +146,7 @@ describe('index-operation (integration)', () => {
       schema: SCHEMA,
       table: 'weird"tbl',
       name: 'weird"idx',
+      confirmation: 'I_KNOW_THIS_IS_DESTRUCTIVE',
     }));
 
     expect(dropped).toMatchObject({ operation: 'drop' });
