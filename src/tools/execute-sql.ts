@@ -5,6 +5,7 @@ import { toolSuccess, toolError } from '../utils/tool-response.js';
 import { streamPostgresQueryToFile, writeArrayToFile, generatePostgresTempFilePath } from '../utils/postgres-stream.js';
 import { supportsCursor } from '../utils/query-analyzer.js';
 import { validateSafeOutputPath } from '../utils/safe-path.js';
+import { classifyDestructive, DESTRUCTIVE_CONFIRMATION_VALUE } from '../utils/confirmation.js';
 
 const executeSQLSchema = z.object({
   query: z.string().describe('SQL query to execute (SELECT, INSERT, UPDATE, DELETE, DDL)'),
@@ -13,6 +14,7 @@ const executeSQLSchema = z.object({
   filePath: z.string().optional().describe('Explicit path to save the file (optional, auto-generated if not provided). Directory will be created if it doesn\'t exist.'),
   format: z.enum(['jsonl', 'json']).optional().describe('Output format when saving to file: jsonl (JSON Lines) or json (JSON array format). Default is jsonl.'),
   forceSaveToFile: z.boolean().optional().default(false).describe('Force saving results to a file even if the query does not support cursor-based streaming (e.g., INSERT, UPDATE, DELETE). When this flag is true, non-SELECT queries will also be saved to file but may consume more memory. Default is false.'),
+  confirmation: z.string().optional().describe(`Required for destructive statements (DROP/TRUNCATE/ALTER, UPDATE/DELETE without WHERE). Must be exactly the string "${DESTRUCTIVE_CONFIRMATION_VALUE}".`),
 });
 
 export type ExecuteSQLParams = z.infer<typeof executeSQLSchema>;
@@ -44,7 +46,19 @@ export function registerExecuteSQLTool(server: McpServer, client: PostgreSQLClie
       },
     },
     async (params: ExecuteSQLParams) => {
-      const { query, params: queryParams = [], saveToFile, forceSaveToFile } = params;
+      const { query, params: queryParams = [], saveToFile, forceSaveToFile, confirmation } = params;
+      // Gate destructive statements behind the confirmation literal regardless
+      // of read-only mode — readonly already blocks writes at the server side
+      // (PG error 25006), but in read-write mode there is no other safety net
+      // against an LLM auto-completing TRUNCATE or DELETE-without-WHERE.
+      const destructive = await classifyDestructive(query);
+
+      if (destructive.isDestructive && confirmation !== DESTRUCTIVE_CONFIRMATION_VALUE) {
+        return toolError(new Error(
+          `Refused: ${destructive.reason ?? 'destructive statement'}. Pass the confirmation literal "${DESTRUCTIVE_CONFIRMATION_VALUE}" in the "confirmation" parameter once the user has approved this operation.`,
+        ));
+      }
+
       // Validate parameters: pass through scalars, Dates, Buffers, arrays, and
       // plain objects (for JSON/JSONB) unchanged. Reject non-serializable
       // values (functions, symbols, exotic objects) explicitly so the user

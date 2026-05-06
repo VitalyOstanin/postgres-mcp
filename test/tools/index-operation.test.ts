@@ -23,6 +23,7 @@ interface IndexOperationParams {
   ifExists?: boolean;
   concurrently?: boolean;
   tableName?: string;
+  confirmation?: string;
 }
 
 interface ToolResult {
@@ -157,6 +158,7 @@ describe('Index Operation Tool', () => {
         table: 'users',
         name: 'idx_users_email',
         ifExists: true,
+        confirmation: 'I_KNOW_THIS_IS_DESTRUCTIVE',
       });
 
       const {calls} = (mockClient.executeQuery as Mock).mock;
@@ -174,6 +176,7 @@ describe('Index Operation Tool', () => {
         schema: 'public',
         table: 'users',
         name: 'idx_orders_user_id',
+        confirmation: 'I_KNOW_THIS_IS_DESTRUCTIVE',
       }) as ToolResult;
 
       expect(result.isError).toBe(true);
@@ -191,6 +194,7 @@ describe('Index Operation Tool', () => {
         schema: 'public',
         name: 'missing_idx',
         ifExists: true,
+        confirmation: 'I_KNOW_THIS_IS_DESTRUCTIVE',
       }) as ToolResult;
 
       expect(result.isError).toBeFalsy();
@@ -205,6 +209,7 @@ describe('Index Operation Tool', () => {
         operation: 'drop',
         schema: 'public',
         name: 'missing_idx',
+        confirmation: 'I_KNOW_THIS_IS_DESTRUCTIVE',
       }) as ToolResult;
 
       expect(result.isError).toBe(true);
@@ -221,6 +226,7 @@ describe('Index Operation Tool', () => {
         schema: 'public',
         name: 'idx_users_email',
         concurrently: true,
+        confirmation: 'I_KNOW_THIS_IS_DESTRUCTIVE',
       });
 
       const {calls} = (mockClient.executeQuery as Mock).mock;
@@ -238,6 +244,7 @@ describe('Index Operation Tool', () => {
         operation: 'drop',
         schema: 'public',
         name: 'idx_orders_user_id',
+        confirmation: 'I_KNOW_THIS_IS_DESTRUCTIVE',
       }) as ToolResult;
 
       expect(result.isError).toBeFalsy();

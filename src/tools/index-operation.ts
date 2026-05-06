@@ -3,6 +3,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { PostgreSQLClient } from '../postgres-client.js';
 import { toolSuccess, toolError } from '../utils/tool-response.js';
 import { quoteIdent, quoteQualified } from '../utils/sql-identifier.js';
+import { DESTRUCTIVE_CONFIRMATION_VALUE } from '../utils/confirmation.js';
 
 const indexOperationSchema = z.object({
   operation: z.enum(['create', 'drop', 'list']).describe('Operation to perform: create, drop or list indexes'),
@@ -21,6 +22,7 @@ const indexOperationSchema = z.object({
 
   // Parameters for DROP operation
   ifExists: z.boolean().optional().default(false).describe('Add IF EXISTS clause to prevent errors if index does not exist (for drop)'),
+  confirmation: z.string().optional().describe(`Required when operation=drop. Must be exactly the string "${DESTRUCTIVE_CONFIRMATION_VALUE}" to confirm the index drop.`),
 
   // Parameters for LIST operation
   tableName: z.string().optional().describe('Deprecated alias of `table` for list operation. Use `table` instead.'),
@@ -122,10 +124,16 @@ export function registerIndexOperationTool(server: McpServer, client: PostgreSQL
           }
 
           case 'drop': {
-            const { table, name, ifExists, concurrently } = params;
+            const { table, name, ifExists, concurrently, confirmation } = params;
 
             if (!name) {
               return toolError(new Error('For drop operation: name is required'));
+            }
+
+            if (confirmation !== DESTRUCTIVE_CONFIRMATION_VALUE) {
+              return toolError(new Error(
+                `Refused: index drop is destructive. Pass the confirmation literal "${DESTRUCTIVE_CONFIRMATION_VALUE}" in the "confirmation" parameter once the user has approved this operation.`,
+              ));
             }
 
             // Look the index up by (schema, name). If `table` was provided,
