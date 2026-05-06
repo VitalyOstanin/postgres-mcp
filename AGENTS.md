@@ -69,6 +69,7 @@
 - `npm run dev`: Watch mode for local development (`tsc --watch`).
 - `npx eslint --print-config <file>`: Dry-run lint config inspection (first run rule).
 - After modifying `package.json` dependencies, always run `npm install` to update `package-lock.json` accordingly.
+- `package.json#overrides.ip-address: ^10.1.1` is a security pin: it pulls in the patch for [GHSA-v2v4-37r5-5v8g](https://github.com/advisories/GHSA-v2v4-37r5-5v8g) (XSS in `ip-address` Address6 HTML-emitting methods; vulnerable `<= 10.1.0`, fixed in `10.1.1`). Do not remove this override until every transitive consumer ships with `ip-address >= 10.1.1` — npm strict-mode rejects comment keys inside `overrides`, so this note lives here instead of inline in `package.json`.
 - Keep documentation (`README*`, `TODO*`, ru variants when available) aligned with the current Postgres feature set after each iteration.
 - When adding or modifying environment variables, update `README.md` and `README-ru.md` so setup instructions stay accurate.
 
