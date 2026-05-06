@@ -19,6 +19,17 @@ export default defineConfig({
       // Keep integration coverage in its own directory so the unit suite's
       // coverage report doesn't get clobbered when both are collected on CI.
       reportsDirectory: 'coverage-integration',
+      // Conservative initial floors so an integration suite that grows
+      // accidentally narrow (someone deletes a test, or skips a file)
+      // fails CI rather than passing silently. Re-measure with
+      // `npm run test:integration -- --coverage` and tighten to ~5-10
+      // points below the actual numbers when the suite stabilises.
+      thresholds: {
+        statements: 50,
+        branches: 40,
+        functions: 50,
+        lines: 50,
+      },
     },
   },
 });
