@@ -90,34 +90,62 @@ export function registerListObjectsTool(server: McpServer, client: PostgreSQLCli
             break;
           case 'all':
           default:
+            // Each UNION ALL branch carries its own ORDER BY / LIMIT so the
+            // planner can stop after producing at most `limit + offset + 1`
+            // rows per source instead of materialising every table, view,
+            // and routine in the schema before sorting and slicing. Worst
+            // case (all selected rows fall into one branch) we still need
+            // `limit + offset + 1` from each source — adding `+1` keeps
+            // `hasMore` computable from the outer LIMIT.
             baseQuery = `
               SELECT name, type FROM (
-                SELECT table_name as name, 'table' as type
-                FROM information_schema.tables
-                WHERE table_schema = $1
-                  AND table_type = 'BASE TABLE'
-                  AND ($2::text IS NULL OR table_name ILIKE $2)
+                (
+                  SELECT table_name as name, 'table' as type
+                  FROM information_schema.tables
+                  WHERE table_schema = $1
+                    AND table_type = 'BASE TABLE'
+                    AND ($2::text IS NULL OR table_name ILIKE $2)
+                  ORDER BY table_name
+                  LIMIT $3
+                )
                 UNION ALL
-                SELECT table_name as name, 'view' as type
-                FROM information_schema.views
-                WHERE table_schema = $1
-                  AND ($2::text IS NULL OR table_name ILIKE $2)
+                (
+                  SELECT table_name as name, 'view' as type
+                  FROM information_schema.views
+                  WHERE table_schema = $1
+                    AND ($2::text IS NULL OR table_name ILIKE $2)
+                  ORDER BY table_name
+                  LIMIT $3
+                )
                 UNION ALL
-                SELECT p.proname as name,
-                       CASE p.prokind WHEN 'p' THEN 'procedure' ELSE 'function' END as type
-                FROM pg_proc p
-                JOIN pg_namespace n ON p.pronamespace = n.oid
-                WHERE n.nspname = $1
-                  AND p.prokind IN ('f', 'p')
-                  AND ($2::text IS NULL OR p.proname ILIKE $2)
+                (
+                  SELECT p.proname as name,
+                         CASE p.prokind WHEN 'p' THEN 'procedure' ELSE 'function' END as type
+                  FROM pg_proc p
+                  JOIN pg_namespace n ON p.pronamespace = n.oid
+                  WHERE n.nspname = $1
+                    AND p.prokind IN ('f', 'p')
+                    AND ($2::text IS NULL OR p.proname ILIKE $2)
+                  ORDER BY p.proname
+                  LIMIT $3
+                )
               ) all_objects
               ORDER BY name
             `;
             break;
         }
 
-        const query = `${baseQuery} LIMIT $3 OFFSET $4`;
-        const objects = await client.executeQuery<{ name: string; type: string }>(query, [schema, namePattern, limit + 1, offset]);
+        // 'all' uses three params already ($1 schema, $2 nameLike, $3
+        // per-branch LIMIT cap), so the outer LIMIT/OFFSET take $4/$5.
+        // Single-source variants use only $1/$2 inside `baseQuery`, so
+        // the outer LIMIT/OFFSET are $3/$4.
+        const query = type === 'all'
+          ? `${baseQuery} LIMIT $4 OFFSET $5`
+          : `${baseQuery} LIMIT $3 OFFSET $4`;
+        const queryParams: unknown[] = type === 'all'
+          ? [schema, namePattern, limit + offset + 1, limit + 1, offset]
+          : [schema, namePattern, limit + 1, offset];
+        const objects = await client.executeQuery<{ name: string; type: string }>(query, queryParams);
         const hasMore = objects.length > limit;
         const page = hasMore ? objects.slice(0, limit) : objects;
 

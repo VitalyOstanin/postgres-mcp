@@ -179,13 +179,15 @@ export function registerIndexOperationTool(server: McpServer, client: PostgreSQL
             // Accept either `table` (canonical) or `tableName` (deprecated)
             // to filter list results to a specific table.
             const searchTable = table ?? tableName;
-            let baseQuery = '';
-            let baseParams: Array<string | number>;
+            let query: string;
+            let queryParams: Array<string | number>;
 
             if (searchTable) {
               // List indexes for a specific table — emit one row per indexed
-              // column so the caller can see column-level ordering.
-              baseQuery = `
+              // column so the caller can see column-level ordering. The
+              // table filter alone bounds the JOIN with pg_attribute, so a
+              // straight LIMIT/OFFSET on the outer query is enough.
+              query = `
                 SELECT
                   t.relname as table_name,
                   i.relname as index_name,
@@ -202,38 +204,55 @@ export function registerIndexOperationTool(server: McpServer, client: PostgreSQL
                   AND t.relname = $1
                   AND n.nspname = $2
                 ORDER BY t.relname, i.relname, a.attnum
+                LIMIT $3 OFFSET $4
               `;
-              baseParams = [searchTable, schema];
+              queryParams = [searchTable, schema, limit + 1, offset];
             } else {
               // List all indexes in the schema, aggregated per index.
-              baseQuery = `
+              //
+              // Apply LIMIT/OFFSET to the index list FIRST, then pull
+              // column names only for the paged indexes via LATERAL JOIN.
+              // Without this push-down, `string_agg(... pg_attribute ...)`
+              // would be computed for every index in the schema (full
+              // scan over pg_attribute joined to pg_index) before LIMIT
+              // had any effect — painful on schemas with thousands of
+              // indexes. Page-size LATERAL lookups are O(page_size *
+              // cols_per_index) instead.
+              query = `
+                WITH paged_indexes AS (
+                  SELECT
+                    ix.indrelid,
+                    ix.indkey,
+                    ix.indisunique,
+                    t.relname AS table_name,
+                    i.relname AS index_name
+                  FROM pg_index ix
+                  INNER JOIN pg_class t ON t.oid = ix.indrelid
+                  INNER JOIN pg_class i ON i.oid = ix.indexrelid
+                  INNER JOIN pg_namespace n ON n.oid = t.relnamespace
+                  WHERE t.relkind = 'r'
+                    AND n.nspname = $1
+                  ORDER BY t.relname, i.relname
+                  LIMIT $2 OFFSET $3
+                )
                 SELECT
-                  t.relname as table_name,
-                  i.relname as index_name,
-                  string_agg(a.attname, ', ' ORDER BY a.attnum) as columns,
-                  ix.indisunique as is_unique
-                FROM pg_index ix
-                INNER JOIN pg_class t ON t.oid = ix.indrelid
-                INNER JOIN pg_class i ON i.oid = ix.indexrelid
-                INNER JOIN pg_namespace n ON n.oid = t.relnamespace
-                INNER JOIN pg_attribute a
-                  ON a.attrelid = t.oid
-                  AND a.attnum = ANY(ix.indkey)
-                WHERE t.relkind = 'r'
-                  AND n.nspname = $1
-                GROUP BY t.relname, i.relname, ix.indisunique
-                ORDER BY t.relname, i.relname
+                  pi.table_name,
+                  pi.index_name,
+                  cols.columns,
+                  pi.indisunique AS is_unique
+                FROM paged_indexes pi
+                CROSS JOIN LATERAL (
+                  SELECT string_agg(a.attname, ', ' ORDER BY a.attnum) AS columns
+                  FROM pg_attribute a
+                  WHERE a.attrelid = pi.indrelid
+                    AND a.attnum = ANY(pi.indkey)
+                ) cols
+                ORDER BY pi.table_name, pi.index_name
               `;
-              baseParams = [schema];
+              queryParams = [schema, limit + 1, offset];
             }
 
-            const limitParamIdx = baseParams.length + 1;
-            const offsetParamIdx = baseParams.length + 2;
-            const query = `${baseQuery} LIMIT $${limitParamIdx} OFFSET $${offsetParamIdx}`;
-            const indexes = await client.executeQuery<IndexRow>(
-              query,
-              [...baseParams, limit + 1, offset],
-            );
+            const indexes = await client.executeQuery<IndexRow>(query, queryParams);
             const hasMore = indexes.length > limit;
             const page = hasMore ? indexes.slice(0, limit) : indexes;
 

@@ -106,20 +106,27 @@ export function registerShowObjectTool(server: McpServer, client: PostgreSQLClie
               WHERE table_schema = $1 AND table_name = $2
               ORDER BY ordinal_position
             `;
-            // Get table/view information
-            const infoQuery = type === 'table'
-              ? `SELECT table_name as name, 'table' as type FROM information_schema.tables WHERE table_schema = $1 AND table_name = $2`
-              : `SELECT table_name as name, 'view' as type FROM information_schema.views WHERE table_schema = $1 AND table_name = $2`;
-            // Run both queries in parallel: with `pool max >= 2` they fan out
-            // across two physical connections; with `pool max = 1` they
-            // serialize at the pool level but at least we don't pay two
-            // sequential client.connect()/release() round-trips here.
-            const [columns, resultArray] = await Promise.all([
-              client.executeQuery<ColumnInfo>(columnsQuery, [schema, name]),
-              client.executeQuery<TableOrViewInfo>(infoQuery, [schema, name]),
-            ]);
-            const info = resultArray[0];
+            const columns = await client.executeQuery<ColumnInfo>(columnsQuery, [schema, name]);
+            // Happy path: columns came back, so the object exists. Skip
+            // the second round-trip and synthesise {name, type} from the
+            // request. With the default `pool max=1` this halves
+            // tool-call latency for the common case.
+            let info: TableOrViewInfo | undefined;
 
+            if (columns.length > 0) {
+              info = { name, type };
+            } else {
+              // No columns: distinguish "object missing" from the rare
+              // "object exists but has no columns" by falling back to
+              // the catalog. Still cheap because it only fires on the
+              // empty-column edge case.
+              const existsQuery = type === 'table'
+                ? `SELECT table_name as name, 'table' as type FROM information_schema.tables WHERE table_schema = $1 AND table_name = $2`
+                : `SELECT table_name as name, 'view' as type FROM information_schema.views WHERE table_schema = $1 AND table_name = $2`;
+              const resultArray = await client.executeQuery<TableOrViewInfo>(existsQuery, [schema, name]);
+
+              info = resultArray[0];
+            }
             if (info) {
               result = {
                 name: info.name,

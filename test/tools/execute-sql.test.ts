@@ -472,6 +472,32 @@ describe('Execute SQL Tool', () => {
     expect(mockClient.executeQuery).toHaveBeenCalledWith('SELECT * FROM users WHERE id = ANY($1)', [arrayParam]);
   });
 
+  it('passes Buffer and Uint8Array params through unchanged for bytea (L2)', async () => {
+    mockClient.setExecuteQueryResult([{ id: 1 }]);
+    mockClient.setConnected(true);
+
+    let toolFunction: (params: ExecuteSQLTestParams) => Promise<unknown>;
+
+    (mockServer.registerTool).mockImplementation((_name: unknown, _config: unknown, func: unknown) => {
+      toolFunction = func as (p: ExecuteSQLTestParams) => Promise<unknown>;
+    });
+
+    registerExecuteSQLTool(mockServer as unknown as McpServer, mockClient);
+
+    const bufferParam = Buffer.from([0xde, 0xad, 0xbe, 0xef]);
+    const uint8Param = new Uint8Array([0x01, 0x02, 0x03]);
+
+    await toolFunction!({
+      query: 'INSERT INTO blobs (a, b) VALUES ($1, $2)',
+      params: [bufferParam, uint8Param],
+    });
+
+    expect(mockClient.executeQuery).toHaveBeenCalledWith(
+      'INSERT INTO blobs (a, b) VALUES ($1, $2)',
+      [bufferParam, uint8Param],
+    );
+  });
+
   it('rejects non-serializable params (L10)', async () => {
     mockClient.setConnected(true);
 

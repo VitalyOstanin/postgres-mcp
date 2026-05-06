@@ -4,9 +4,15 @@
 // PostgreSQL client wrapper (with `pg` mocked at the module level) don't have
 // to set it themselves. Tests that probe configuration loading should pass an
 // explicit `env` map to `loadConfig` instead of relying on process.env.
+//
+// `??=` (not `=`) so that a developer who already has POSTGRES_MCP_CONNECTION_STRING
+// pointing at their own dev database keeps that value when running the unit
+// suite — unit tests mock `pg` anyway, so the actual DSN isn't used, but
+// silently overwriting the env breaks subsequent commands run from the same
+// shell (e.g. a manual `node dist/index.js` after `npm test`).
 import { beforeEach, afterEach } from 'vitest';
 
-process.env['POSTGRES_MCP_CONNECTION_STRING'] = 'postgresql://test:test@localhost:5432/test';
+process.env['POSTGRES_MCP_CONNECTION_STRING'] ??= 'postgresql://test:test@localhost:5432/test';
 
 // Env vars whose value on the dev machine could silently change test
 // behavior (e.g. by widening a path-validation whitelist). We snapshot
