@@ -9,7 +9,7 @@ This document outlines the complete release procedure for the PostgreSQL MCP pro
   - [Overview](#overview)
   - [Repository Hardening (one-time)](#repository-hardening-one-time)
     - [Branch Protection on `master`](#branch-protection-on-master)
-    - [`npm-publish` Environment Gating](#npm-publish-environment-gating)
+    - [npm Trusted Publisher](#npm-trusted-publisher)
   - [Pre-Release Checklist](#pre-release-checklist)
     - [0. Environment Setup](#0-environment-setup)
     - [1. Version Update](#1-version-update)
@@ -96,20 +96,37 @@ Optional but recommended:
 - **Require conversation resolution before merging** — outstanding review
   threads block merge.
 
-### `npm-publish` Environment Gating
+### npm Trusted Publisher
 
-The publish workflow gates `NPM_TOKEN` behind a GitHub Environment so a
-mere tag push cannot release. Configure under **Settings → Environments →
-npm-publish**:
+The publish job authenticates to the npm registry via OIDC. There is
+**no `NPM_TOKEN` secret** anywhere in the repository; instead the
+GitHub Actions OIDC token (`id-token: write`) is exchanged for a
+short-lived registry token at publish time.
 
-- **Deployment branches and tags**: restrict to tags matching `v*` (the
-  same pattern as `on.push.tags` in `.github/workflows/publish.yml`).
-- **Required reviewers**: at least one maintainer must approve the
-  workflow run before it proceeds to `npm publish`.
-- **Environment secrets**: store `NPM_TOKEN` here (not at repo level).
+One-time setup on https://www.npmjs.com :
 
-After this, a release run pauses with `Awaiting approval` until a
-maintainer clicks `Review deployments → Approve and deploy`.
+1. Sign in to the npm account that owns `@vitalyostanin/postgres-mcp`.
+2. Go to **Package settings → Access** → **Trusted publisher → Add**.
+3. Pick **GitHub Actions** and fill in:
+   - **Repository owner**: `VitalyOstanin`
+   - **Repository name**: `postgres-mcp`
+   - **Workflow filename**: `publish.yml`
+   - **Environment name**: leave empty (this repo's publish job does
+     not pin to a GitHub Environment).
+4. Save.
+
+Requirements that are already wired up in this repo:
+
+- `permissions: id-token: write` on the publish job
+  (`.github/workflows/publish.yml`).
+- Node.js 24 in the publish job — npm 11.5.1+ is required for Trusted
+  Publishing, and Node 24 ships it out of the box.
+- `package-manager-cache: false` in `actions/setup-node` (per npm docs;
+  the cache otherwise interferes with the OIDC handshake).
+
+If a `NPM_TOKEN` secret was previously configured at the repo level,
+**delete it** — passing it alongside OIDC suppresses the trust-check
+on the registry side.
 
 ## Pre-Release Checklist
 
@@ -345,22 +362,11 @@ This project uses GitHub Actions for automated CI/CD. The release process is ful
 
 #### Prerequisites
 
-**One-time setup:** Configure NPM_TOKEN in GitHub repository secrets:
-
-1. Generate npm Access Token:
-   - Go to [npmjs.com](https://www.npmjs.com/) and log in
-   - Navigate to **Access Tokens** in your account settings
-   - Click **Generate New Token** → **Classic Token**
-   - Select **Automation** type (for CI/CD)
-   - Copy the generated token
-
-2. Add Secret to GitHub:
-   - Go to your GitHub repository: https://github.com/VitalyOstanin/postgres-mcp
-   - Navigate to **Settings** → **Secrets and variables** → **Actions**
-   - Click **New repository secret**
-   - Name: `NPM_TOKEN`
-   - Value: Paste your npm token
-   - Click **Add secret**
+**One-time setup is described above:**
+- [Branch Protection on `master`](#branch-protection-on-master) — gate
+  merges on CI status checks.
+- [npm Trusted Publisher](#npm-trusted-publisher) — OIDC-based
+  authentication to the npm registry (no `NPM_TOKEN` secret needed).
 
 #### Release Steps
 
@@ -385,11 +391,11 @@ npm version major   # for 0.1.0 → 1.0.0 (breaking changes)
 git push --follow-tags
 
 # 3. GitHub Actions will automatically:
-#    - Run CI tests (Node.js 22.x, 24.x — see ci.yml matrix)
-#    - Build the project
-#    - Smoke pack-and-install the tarball
-#    - Publish to npm with provenance
-#    - Create GitHub Release with installation instructions
+#    - pre-publish-checks job: lint, typecheck, unit tests, integration
+#      tests against postgres:18.3-alpine, build, smoke pack-and-install
+#    - publish job (needs: pre-publish-checks): npm publish via Trusted
+#      Publishing OIDC, with provenance
+#    - GitHub Release with installation instructions
 ```
 
 #### Monitor Release Progress
@@ -406,29 +412,31 @@ git push --follow-tags
 
 #### What GitHub Actions Does
 
-The automated workflow (`.github/workflows/publish.yml`) performs:
+The automated workflow (`.github/workflows/publish.yml`) performs two jobs:
 
-1. **Environment Setup**
-   - Checkout repository code
-   - Setup Node.js 22.x with npm cache
-   - Install dependencies with `npm ci`
+**pre-publish-checks** (no special permissions; runs first):
 
-2. **Build & Validation**
-   - Run lint, typecheck, and tests
-   - Build project with `npm run build`
-   - Verify package contents with `npm pack --dry-run`
-   - Smoke pack-and-install: build a tarball, install it into a clean
-     throwaway project, run the bin entry with `--help` to catch broken
-     `files` allow-list, missing deps, or shebang issues
+1. Checkout repository code; setup Node.js 24 with npm cache.
+2. Spin up a `postgres:18.3-alpine` service container with healthcheck.
+3. `npm ci`, then run lint, typecheck, unit tests.
+4. Run integration tests against the postgres service container
+   (`npm run test:integration`).
+5. `npm run build`.
+6. Verify package contents with `npm pack --dry-run`.
+7. Smoke pack-and-install: build a real tarball, install it into a
+   throwaway dir, run the bin entry with `--help` to catch broken
+   `files` allow-list, missing deps, or shebang issues.
 
-3. **Publishing**
-   - Publish to npm with `--provenance` flag (cryptographic signature)
-   - Use `--access public` for scoped package visibility
+**publish** (`needs: pre-publish-checks`):
 
-4. **GitHub Release Creation**
-   - Create GitHub Release automatically
-   - Include installation instructions
-   - Link to package on npmjs.com
+1. Checkout, setup Node.js 24 with `package-manager-cache: false`
+   (Trusted Publishing requirement) and `registry-url`.
+2. Log node/npm versions for OIDC diagnostics.
+3. `npm ci`, `npm run build`.
+4. `npm publish --provenance --access public` — authenticates via
+   GitHub Actions OIDC against the npm Trusted Publisher; **no
+   `NPM_TOKEN` secret involved**.
+5. Create GitHub Release with installation instructions.
 
 **Note**: If tests fail at any point during the workflow, the release is automatically cancelled.
 

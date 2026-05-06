@@ -15,20 +15,29 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  publish:
+  # Pre-publish gate: every check we run on master in ci.yml, plus the
+  # integration suite against a real PostgreSQL container and a smoke
+  # pack-and-install. Split out from the publish job below so the publish
+  # job has a minimal blast radius (only it needs id-token + contents:
+  # write).
+  pre-publish-checks:
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
-    # Gate publishing on the `npm-publish` environment. Configure required
-    # reviewers / branch restrictions / secret scoping under
-    # Settings → Environments → npm-publish so a tag push alone cannot release.
-    environment:
-      name: npm-publish
-      url: https://www.npmjs.com/package/@vitalyostanin/postgres-mcp
-
-    permissions:
-      contents: write  # Required for creating GitHub releases
-      id-token: write  # Required for npm provenance
+    services:
+      postgres:
+        image: postgres:18.3-alpine
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: test
+        ports:
+          - 55432:5432
+        options: >-
+          --health-cmd "pg_isready -U test -d test"
+          --health-interval 1s
+          --health-timeout 3s
+          --health-retries 30
 
     steps:
     - name: Checkout repository
@@ -39,8 +48,7 @@ jobs:
       # actions/setup-node pinned to v6.4.0
       uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
       with:
-        node-version: '22.x'
-        registry-url: 'https://registry.npmjs.org'
+        node-version: '24'
         cache: 'npm'
 
     - name: Install dependencies
@@ -52,8 +60,11 @@ jobs:
     - name: Run typecheck
       run: npm run typecheck
 
-    - name: Run tests
+    - name: Run unit tests
       run: npm test
+
+    - name: Run integration tests
+      run: npm run test:integration
 
     - name: Build project
       run: npm run build
@@ -83,10 +94,57 @@ jobs:
         rm -rf "${SMOKE_DIR}" "${PACKAGE_TARBALL}"
         echo "Smoke install OK"
 
+  publish:
+    needs: pre-publish-checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    permissions:
+      contents: write  # Required for creating GitHub releases
+      id-token: write  # Required for npm Trusted Publishing (OIDC) + provenance
+
+    steps:
+    - name: Checkout repository
+      # actions/checkout pinned to v6.0.2
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+
+    # Node 24 ships with npm >= 11.5.1, which is the minimum version that
+    # supports Trusted Publishing (OIDC) on the npm registry. Node 22's
+    # bundled npm is 10.x — too old. Self-updating npm on Node 22 has been
+    # flaky on GitHub runners (MODULE_NOT_FOUND for promise-retry), so we
+    # take Node 24 here instead. The build/test matrix in ci.yml stays on
+    # 22.x/24.x so we still validate the package against the lower bound
+    # in `engines.node`.
+    - name: Setup Node.js
+      # actions/setup-node pinned to v6.4.0
+      uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+      with:
+        node-version: '24'
+        registry-url: 'https://registry.npmjs.org'
+        # Per npm's Trusted Publishing docs, disable the package-manager
+        # cache here — it interferes with the OIDC handshake.
+        package-manager-cache: false
+
+    - name: Show Node / npm versions
+      # Logged so an OIDC failure (e.g. npm < 11.5.1 missing) is obvious
+      # in the run output instead of just "publish failed".
+      run: node --version && npm --version
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Build project
+      run: npm run build
+
+    # Authentication uses npm Trusted Publishing (OIDC). The id-token
+    # GitHub Actions issues is exchanged for a short-lived registry
+    # token via the Trusted Publisher entry on
+    # https://www.npmjs.com/package/@vitalyostanin/postgres-mcp/access
+    # (GitHub Actions, repo VitalyOstanin/postgres-mcp, workflow
+    # `publish.yml`). No NPM_TOKEN secret is needed; passing one
+    # alongside OIDC suppresses the registry-side trust check.
     - name: Publish to npm
       run: npm publish --provenance --access public
-      env:
-        NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
     - name: Create GitHub Release
       env:
