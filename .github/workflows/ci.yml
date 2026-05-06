@@ -151,13 +151,13 @@ jobs:
     - name: Install dependencies
       run: npm ci
 
-    # The main `typecheck` script runs against `tsconfig.json`, which
-    # excludes `test-integration/`. Run the eslint tsconfig here so a
-    # type error in an integration test fails this job instead of
-    # silently passing because the integration suite happens to still
-    # execute.
+    # `tsconfig.json` already includes `test-integration/**/*`, so
+    # `npm run typecheck` covers integration-test sources. Re-run it here
+    # against the same Postgres container/Node version used by the
+    # integration suite, so a type error in a test fails this job up front
+    # instead of surfacing only after the suite spins up.
     - name: Typecheck (incl. test-integration)
-      run: npx tsc -p tsconfig.eslint.json --noEmit
+      run: npm run typecheck
 
     - name: Run linter
       run: npm run lint
