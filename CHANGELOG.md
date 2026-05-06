@@ -7,9 +7,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Table of Contents
 
+- [0.4.0](#040---2026-05-07)
 - [0.3.0](#030---2026-05-06)
 - [0.2.0](#020---2026-05-06)
 - [0.1.0](#010)
+
+## [0.4.0] - 2026-05-07
+
+> **Breaking changes:** the `index-operation` `list` response shape for the single-table case is now aggregated by index (one row, `columns: "a, b"`) instead of one row per column (`column_name`); the public `PostgreSQLClient.whenLifecycleSettled()` method is removed; `validateSafeOutputPath`, `generateTempFilePath` and `generatePostgresTempFilePath` are now async; `connect` short-circuits only when the full settings tuple matches and reconnects on any drift. See *Breaking* below.
+
+### Fixed
+
+- **CI on master**: removed the dangling reference to a non-existent `tsconfig.eslint.json` in the integration-tests step; the same `npm run typecheck` (which already covers `test-integration/`) is reused. The last four CI runs on master had been failing with `error TS5058`.
+- **`connect` ignored pool/timeout/readonly settings on reconnect**: the fast-path now compares the full tuple `(connectionString, readonlyMode, poolSize, idleTimeoutMillis, connectionTimeoutMillis)` and reopens the pool when any field differs. Previously only the connection string was compared, so a documented use case ("reconnecting with different pool/timeout settings") silently no-op'd.
+- **`index-operation drop` race window**: `concurrently=false` now runs lookup + DROP inside a single transaction (`PostgreSQLClient.withTransaction`), preventing a parallel session from swapping the index between the two statements; `concurrently=true` cannot use a transaction (PostgreSQL restriction), so it now records the index OID during lookup and verifies it is gone after DROP, reporting an honest `dropped: false` with a follow-up message instead of unconditional success.
+- **`index-operation list` pagination broken in single-table branch**: LIMIT/OFFSET applied to per-column rows, so a multi-column index could be split across pages. Both branches now aggregate columns via `string_agg(... ORDER BY a.attnum)` and apply LIMIT/OFFSET to indexes.
+- **`index-operation list` ignored partitioned tables**: filter relaxed to `t.relkind IN ('r','p')` so the listing now includes indexes that `drop` is willing to remove.
+- **`index.ts` crash handler leaked DSNs**: `console.error` paths in `main().catch` and the SIGINT/SIGTERM shutdown branch now run `error.message`/`error.stack`/`error.cause` through `redactConnectionString`.
+- **`PostgreSQLClient.disconnect` did not refresh `disconnectReason` after a pool error**: the field is now updated unconditionally (regardless of whether `pool.end()` runs), so `service-info` reports the latest cause instead of a stale "pool connection error".
+- **`execute-sql` paid for parser/parameter validation before checking connection state**: the `requireConnection` guard moved to the start of the handler.
+- **`isSerializableParam` could blow the stack on a cyclic parameter**: extracted to `src/utils/sql-params.ts` with a 64-level depth limit and a `WeakSet` cycle detector.
+
+### Added
+
+- `src/defaults.ts`: single source of truth for `DEFAULT_POOL_SIZE`, `DEFAULT_IDLE_TIMEOUT_MS`, `DEFAULT_CONNECTION_TIMEOUT_MS`, `DEFAULT_TIMEZONE`, pagination bounds. CLI, server constructor, client and `loadConfig` all import from here.
+- `src/utils/connection-guard.ts` (`requireConnection`), `src/utils/connection-messages.ts` (canonical "connection string is required" message), `src/utils/pagination.ts` (`paginationLimitSchema`/`paginationOffsetSchema`), `src/utils/sql-params.ts` (`isSerializableParam` with cycle protection).
+- `PostgreSQLClient.withTransaction(operation)` for check-then-act flows that require atomicity (used by `index-operation drop` non-concurrent path).
+- ESLint flat-config rule `quotes: ['error', 'single', { avoidEscape: true, allowTemplateLiterals: true }]`. The repo is normalised; mixed quote-style cannot drift back.
+- `npm run format` script (alias of `lint:fix`) — for contributors who reflexively run the conventional name.
+- `index-operation list` now emits a structured `warnings` field in the response when the deprecated `tableName` alias is used (plus a one-shot `console.warn` per process); the canonical replacement is `table`.
+- `test/utils/confirmation.test.ts`: 15-case unit suite covering `DESTRUCTIVE_CONFIRMATION_VALUE` and `classifyDestructive` (SELECT/INSERT/scoped UPDATE-DELETE pass; DROP/TRUNCATE/ALTER, UPDATE-without-WHERE, DELETE-without-WHERE are flagged; broken SQL defers to PostgreSQL).
+- `vitest.integration.config.ts`: conservative initial coverage thresholds (statements/lines 50, branches 40, functions 50) so a regression that narrows the integration suite trips CI.
+- `pre-publish-checks` workflow now runs the Node 22.x / 24.x matrix (mirrors `engines.node` lower bound) and adds an `npm audit --omit=dev --audit-level=high` step, closing the gap that allowed a tag to publish even when the audit job in `ci.yml` was failing.
+
+### Changed
+
+- All eight tools now use the shared `requireConnection` guard — duplicated `isConnectedToPostgreSQL`/`toolError(...)` blocks are removed; the wording lives in one place.
+- `index-operation` handler split into `runCreate`, `runDrop`, `runList` private functions; the previous ~225-line lambda is gone.
+- `execute-sql` handler split: file-mode logic extracted to `runSaveToFile`, parameter validation to `validateParams`, the inline `isSerializableParam` recursion replaced by the shared utility.
+- `safe-path` resolves the allowed-output-dirs whitelist once via lazy init (`resetAllowedOutputDirsCache` exported for tests) instead of re-parsing `POSTGRES_MCP_OUTPUT_DIRS` and re-running `realpath` on every call.
+- Every `register*Tool` function now has a one-line JSDoc.
+- README / README-ru: new `Development`, `Build`, `Testing`, `Linting and Formatting`, `Project Structure`, `Local PostgreSQL Container` sections so new contributors don't have to reverse-engineer onboarding from `AGENTS.md`.
+- AGENTS.md: hardened the Testing Credentials note — the `127.0.0.1:` prefix on the `compose.yaml` port binding is now called out as non-optional, and the CI service pattern is flagged as unsafe to copy onto self-hosted runners.
+- Dependencies bumped to current minors: `pg ^8.20.0`, `pg-query-stream ^4.14.0`, `pgsql-parser ^17.9.15`, `luxon ^3.7.2`, `@types/pg ^8.20.0`; `packageManager` set to `npm@11.12.1`. `@types/pg-query-stream` removed entirely (the runtime package now ships its own types and the `@types/...` entry on the registry is just a forwarder stub).
+- `node:` import-protocol prefix is now consistent across the codebase (`node:fs/promises`, `node:path`, `node:os`, `node:stream`, `node:events`, `node:crypto`).
+
+### Breaking
+
+- **`index-operation` `operation=list`, single-table branch**: the response previously emitted one row per indexed column with a `column_name` field; it now emits one row per index with a `columns` field (a comma-separated string in `attnum` order). The schema-wide branch was already shaped this way; the two branches are now consistent. Callers that read `column_name` must switch to `columns`.
+- **`PostgreSQLClient.whenLifecycleSettled()` removed.** It was defined but never called from anywhere in this repo. If a downstream consumer was awaiting it before issuing tool calls, the method has to be re-introduced or the consumer must rely on `isConnectedToPostgreSQL()` plus `connect()` returning before the first tool call (the way `PostgreSQLServer.init()` already wires things up).
+- **`validateSafeOutputPath`, `generateTempFilePath`, `generatePostgresTempFilePath` are now `async`.** Sync call sites must add `await`. Internal-only utilities, but exported from the published package.
+- **`connect` short-circuit semantics tightened.** `Already connected to PostgreSQL with the same connection string` is replaced by `Already connected to PostgreSQL with the same connection string and settings`, and the tool reconnects whenever `readonlyMode`, `poolSize`, `idleTimeoutMillis` or `connectionTimeoutMillis` differs from the live pool. Behaviour now matches the documented intent ("reconnecting with different pool/timeout settings").
+- **`index-operation` `operation=drop` with `concurrently=true`**: the response can now report `dropped: false` if a parallel session replaced the index between lookup and DROP. Previously the field was always `true`.
+- **`@types/pg-query-stream` removed from devDependencies**: the runtime `pg-query-stream@4.x` ships its own types; the standalone `@types/...` entry was a stub. No source change is required, but a consumer that pinned the stub explicitly must drop the pin.
 
 ## [0.3.0] - 2026-05-06
 
