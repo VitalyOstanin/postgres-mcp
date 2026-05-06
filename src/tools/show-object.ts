@@ -3,11 +3,12 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { PostgreSQLClient } from '../postgres-client.js';
 import { toolSuccess, toolError } from '../utils/tool-response.js';
 import { requireConnection } from '../utils/connection-guard.js';
+import { DEFAULT_SCHEMA } from '../defaults.js';
 
 const showObjectSchema = z.object({
-  schema: z.string().optional().default('public').describe('Schema name where the object is located'),
-  name: z.string().describe('Object name (table, view, or function name)'),
-  type: z.enum(['table', 'view', 'function']).describe('Type of the object to show'),
+  schema: z.string().optional().default(DEFAULT_SCHEMA).describe('Schema name where the object is located'),
+  name: z.string().describe('Object name (table, view, function, or procedure name)'),
+  type: z.enum(['table', 'view', 'function', 'procedure']).describe('Type of the object to show'),
 });
 
 export type ShowObjectParams = z.infer<typeof showObjectSchema>;
@@ -57,10 +58,10 @@ interface FunctionOverload {
   definition: string;
 }
 
-interface FunctionWithOverloads {
+interface RoutineWithOverloads {
   name: string;
   schema: string;
-  type: 'function';
+  type: 'function' | 'procedure';
   overloads: FunctionOverload[];
 }
 
@@ -74,10 +75,10 @@ export function registerShowObjectTool(server: McpServer, client: PostgreSQLClie
     {
       title: 'Show Object',
       description: [
-        'Show detailed information about a PostgreSQL object (table, view, or function).',
-        'Use for: inspecting columns, data types, defaults, nullability of a table or view; reading the full source definition of a function.',
-        'Returns (table/view): `{ name, type, columns: [{ name, type, nullable, default, maxLength, precision, scale }] }`. Returns (function): `{ name, schema, type, overloads: [{ arguments, identityArguments, returnType, definition }] }` — every overload sharing the name is included; `identityArguments` uniquely identifies an overload (use it with `DROP FUNCTION schema.name(identityArguments)`).',
-        'Limitations: function definitions can include credentials embedded in SECURITY DEFINER bodies — consider that before sharing the output.',
+        'Show detailed information about a PostgreSQL object (table, view, function, or procedure).',
+        'Use for: inspecting columns, data types, defaults, nullability of a table or view; reading the full source definition of a function or procedure.',
+        'Returns (table/view): `{ name, type, columns: [{ name, type, nullable, default, maxLength, precision, scale }] }`. Returns (function/procedure): `{ name, schema, type, overloads: [{ arguments, identityArguments, returnType, definition }] }` — every overload sharing the name is included; `identityArguments` uniquely identifies an overload (use it with `DROP FUNCTION schema.name(identityArguments)` or the equivalent DROP PROCEDURE form).',
+        'Limitations: function/procedure bodies can include credentials embedded in SECURITY DEFINER definitions — consider that before sharing the output.',
       ].join(' '),
       inputSchema: showObjectSchema.shape,
       annotations: {
@@ -92,10 +93,10 @@ export function registerShowObjectTool(server: McpServer, client: PostgreSQLClie
 
       if (guard) return guard;
 
-      const { schema = 'public', name, type } = params;
+      const { schema = DEFAULT_SCHEMA, name, type } = params;
 
       try {
-        let result: TableWithColumns | FunctionWithOverloads | null = null;
+        let result: TableWithColumns | RoutineWithOverloads | null = null;
 
         switch (type) {
           case 'table':
@@ -153,13 +154,16 @@ export function registerShowObjectTool(server: McpServer, client: PostgreSQLClie
             break;
           }
 
-          case 'function': {
+          case 'function':
+          case 'procedure': {
             // Return every overload sharing this name. `identity_arguments`
             // gives the unambiguous form (without parameter names, modes, or
-            // defaults) that DROP FUNCTION expects. Restrict to functions
-            // and procedures (`prokind IN ('f', 'p')`); aggregates and
-            // window functions can be added later if needed.
-            const functionQuery = `
+            // defaults) that DROP FUNCTION/DROP PROCEDURE expects. Filter by
+            // prokind so a function and a procedure with the same name don't
+            // bleed into each other's responses (aggregates `a` and window
+            // functions `w` are excluded by design).
+            const prokind = type === 'procedure' ? 'p' : 'f';
+            const routineQuery = `
               SELECT
                 p.proname as name,
                 n.nspname as schema,
@@ -171,19 +175,26 @@ export function registerShowObjectTool(server: McpServer, client: PostgreSQLClie
               JOIN pg_namespace n ON p.pronamespace = n.oid
               JOIN pg_type t ON p.prorettype = t.oid
               WHERE n.nspname = $1 AND p.proname = $2
-                AND p.prokind IN ('f', 'p')
+                AND p.prokind = $3
               ORDER BY pg_get_function_identity_arguments(p.oid)
             `;
-            const resultArray = await client.executeQuery<FunctionInfo>(functionQuery, [schema, name]);
+            const resultArray = await client.executeQuery<FunctionInfo>(routineQuery, [schema, name, prokind]);
 
             if (resultArray.length > 0) {
               const first = resultArray[0];
 
-              if (!first) break;
+              if (!first) {
+                // `length > 0` already guarantees an element here; this
+                // branch only fires under noUncheckedIndexedAccess if pg
+                // ever returns sparse rows. Surface it as an internal
+                // error instead of letting the outer "does not exist"
+                // path swallow a found-but-empty row.
+                return toolError(new Error('Internal error: query returned an empty row'));
+              }
               result = {
                 name: first.name,
                 schema: first.schema,
-                type: 'function',
+                type,
                 overloads: resultArray.map(row => ({
                   arguments: row.arguments,
                   identityArguments: row.identity_arguments,

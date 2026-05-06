@@ -8,7 +8,7 @@ import { streamPostgresQueryToFile, writeArrayToFile, generatePostgresTempFilePa
 import { supportsCursor } from '../utils/query-analyzer.js';
 import { validateSafeOutputPath } from '../utils/safe-path.js';
 import { classifyDestructive, DESTRUCTIVE_CONFIRMATION_VALUE } from '../utils/confirmation.js';
-import { isSerializableParam } from '../utils/sql-params.js';
+import { getSerializationIssue } from '../utils/sql-params.js';
 
 const executeSQLSchema = z.object({
   query: z.string().describe('SQL query to execute (SELECT, INSERT, UPDATE, DELETE, DDL)'),
@@ -22,13 +22,26 @@ const executeSQLSchema = z.object({
 
 export type ExecuteSQLParams = z.infer<typeof executeSQLSchema>;
 
+function describeIssue(idx: number, issue: NonNullable<ReturnType<typeof getSerializationIssue>>): string {
+  const base = `Parameter at index ${idx} is not serializable`;
+
+  switch (issue.reason) {
+    case 'cyclic':
+      return `${base}: contains a cyclic reference, which JSON.stringify cannot handle.`;
+    case 'depth':
+      return `${base}: nesting exceeds the maximum depth of ${issue.limit} levels — flatten the payload or send it as text.`;
+    case 'type':
+      return `${base} (got ${issue.valueType}). Allowed: scalars, null, Date, Buffer, arrays of allowed values, plain objects (for JSON/JSONB).`;
+  }
+}
+
 function validateParams(rawParams: unknown[]): { params: unknown[] | undefined } | { error: Error } {
   for (let idx = 0; idx < rawParams.length; idx++) {
-    if (!isSerializableParam(rawParams[idx])) {
+    const issue = getSerializationIssue(rawParams[idx]);
+
+    if (issue) {
       return {
-        error: new Error(
-          `Parameter at index ${idx} is not serializable (got ${typeof rawParams[idx]}). Allowed: scalars, null, Date, Buffer, arrays of allowed values, plain objects (for JSON/JSONB). Cyclic references are rejected.`,
-        ),
+        error: new Error(describeIssue(idx, issue)),
       };
     }
   }
@@ -112,7 +125,7 @@ export function registerExecuteSQLTool(server: McpServer, client: PostgreSQLClie
         'Parameters use $1/$2 placeholders. Allowed values: scalars, null, Date, Buffer, arrays of allowed values, plain objects (sent as JSON/JSONB). Cyclic references are rejected.',
         'When `saveToFile=true`, SELECT/WITH/VALUES queries stream rows to disk via a server-side cursor; non-cursor queries require `forceSaveToFile=true` and are buffered in memory first.',
         'The output `filePath` is restricted to the OS temp directory (override with the POSTGRES_MCP_OUTPUT_DIRS env var, `:`-separated whitelist).',
-        'Limitations: in read-only mode the session is opened with `default_transaction_read_only=on` (a session startup parameter, not `SET TRANSACTION READ ONLY`); data-modifying statements fail with PostgreSQL error 25006. No automatic LIMIT is applied — add one for large tables.',
+        'Limitations: in read-only mode the session is opened with `default_transaction_read_only=on` (a session startup parameter, not `SET TRANSACTION READ ONLY`); data-modifying statements fail with PostgreSQL error 25006. No automatic LIMIT is applied — without `saveToFile=true` the entire result is buffered in memory; for queries that may return more than ~10000 rows always either add an explicit `LIMIT` or set `saveToFile=true` to stream via cursor, otherwise the MCP-server process can exhaust heap.',
       ].join(' '),
       inputSchema: executeSQLSchema.shape,
       annotations: {

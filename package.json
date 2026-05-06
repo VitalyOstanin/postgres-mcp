@@ -9,14 +9,14 @@
     "typecheck": "tsc -p tsconfig.json",
     "lint": "eslint . --cache --cache-location node_modules/.cache/eslint/",
     "lint:fix": "eslint . --fix --cache --cache-location node_modules/.cache/eslint/",
-    "test": "vitest run",
+    "test": "timeout 600 vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage",
-    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "test:coverage": "timeout 600 vitest run --coverage",
+    "test:integration": "timeout 600 vitest run --config vitest.integration.config.ts",
     "test:integration:up": "podman-compose -f compose.yaml up -d",
     "test:integration:down": "podman-compose -f compose.yaml down",
-    "format": "eslint . --fix --cache --cache-location node_modules/.cache/eslint/",
-    "prepublishOnly": "npm run lint && npm run typecheck && npm run test && npm run build"
+    "format": "npm run --silent lint:fix",
+    "prepublishOnly": "npm run lint && npm run typecheck && npm run test && npm audit --omit=dev --audit-level=moderate && npm run build"
   },
   "keywords": [
     "model-context-protocol",

@@ -7,10 +7,11 @@ import { quoteIdent, quoteQualified } from '../utils/sql-identifier.js';
 import { DESTRUCTIVE_CONFIRMATION_VALUE } from '../utils/confirmation.js';
 import { requireConnection } from '../utils/connection-guard.js';
 import { paginationLimitSchema, paginationOffsetSchema } from '../utils/pagination.js';
+import { DEFAULT_SCHEMA } from '../defaults.js';
 
 const indexOperationSchema = z.object({
   operation: z.enum(['create', 'drop', 'list']).describe('Operation to perform: create, drop or list indexes'),
-  schema: z.string().optional().default('public').describe('Schema name where the table is located'),
+  schema: z.string().optional().default(DEFAULT_SCHEMA).describe('Schema name where the table is located'),
 
   // Required for create; for drop, optional — when provided, the tool verifies
   // the named index actually belongs to that table before issuing DROP. For
@@ -42,9 +43,27 @@ interface IndexRow {
   columns: string;
 }
 
+interface IndexLookupRow {
+  // node-postgres returns int8 as a string to preserve precision. The OID
+  // round-trips fine as a string in subsequent `WHERE oid = $1` parameters
+  // and in template-literal messages, so we keep it stringly-typed rather
+  // than coercing to number (which would lie about the wire format).
+  oid: string;
+  table_name: string;
+}
+
 // Track whether we have already warned about the deprecated `tableName` alias
 // so the warning fires once per process lifetime instead of on every call.
 let deprecatedTableNameWarned = false;
+
+/**
+ * Reset the once-per-process deprecation flag for the `tableName` alias.
+ * Tests rely on this so the warning is observable in the very first
+ * assertion regardless of test execution order.
+ */
+export function resetDeprecationWarning(): void {
+  deprecatedTableNameWarned = false;
+}
 
 function optionalSqlClause(flag: boolean | undefined, keyword: string): string {
   return flag ? keyword : '';
@@ -85,9 +104,72 @@ async function runCreate(client: PostgreSQLClient, params: IndexOperationParams,
   });
 }
 
-interface IndexLookupRow {
-  oid: number;
-  table_name: string;
+const dropIndexLookupSql = `SELECT i.oid::int8 AS oid, t.relname AS table_name
+                       FROM pg_class i
+                       JOIN pg_namespace n ON n.oid = i.relnamespace
+                       JOIN pg_index ix ON ix.indexrelid = i.oid
+                       JOIN pg_class t ON t.oid = ix.indrelid
+                      WHERE i.relkind IN ('i', 'I')
+                        AND n.nspname = $1
+                        AND i.relname = $2`;
+
+type IndexDropQueryRunner = <T>(query: string, params?: unknown[]) => Promise<T[]>;
+
+type IndexDropPreCheck =
+  | { kind: 'short-circuit'; result: CallToolResult }
+  | { kind: 'proceed'; actualTable: string; lookupOid: string };
+
+async function preCheckIndexDrop(
+  run: IndexDropQueryRunner,
+  schema: string,
+  name: string,
+  table: string | undefined,
+  ifExists: boolean | undefined,
+): Promise<IndexDropPreCheck> {
+  const lookup = await run<IndexLookupRow>(dropIndexLookupSql, [schema, name]);
+
+  if (lookup.length === 0) {
+    if (ifExists) {
+      return {
+        kind: 'short-circuit',
+        result: toolSuccess({
+          operation: 'drop',
+          schema,
+          table,
+          name,
+          dropped: false,
+          message: `Index "${schema}"."${name}" does not exist; skipped (ifExists=true)`,
+        }),
+      };
+    }
+
+    return {
+      kind: 'short-circuit',
+      result: toolError(new Error(`Index "${schema}"."${name}" does not exist`)),
+    };
+  }
+
+  const lookupRow = lookup[0];
+
+  if (!lookupRow) {
+    return {
+      kind: 'short-circuit',
+      result: toolError(new Error('Internal error: index lookup returned an empty row')),
+    };
+  }
+
+  const { oid: lookupOid, table_name: actualTable } = lookupRow;
+
+  if (table && actualTable !== table) {
+    return {
+      kind: 'short-circuit',
+      result: toolError(new Error(
+        `Index "${schema}"."${name}" belongs to table "${actualTable}", not "${table}". Re-issue the drop with the correct table, or omit \`table\` to skip the check.`,
+      )),
+    };
+  }
+
+  return { kind: 'proceed', actualTable, lookupOid };
 }
 
 async function runDrop(client: PostgreSQLClient, params: IndexOperationParams, schema: string): Promise<CallToolResult> {
@@ -103,14 +185,7 @@ async function runDrop(client: PostgreSQLClient, params: IndexOperationParams, s
     ));
   }
 
-  const lookupSql = `SELECT i.oid::int8 AS oid, t.relname AS table_name
-                       FROM pg_class i
-                       JOIN pg_namespace n ON n.oid = i.relnamespace
-                       JOIN pg_index ix ON ix.indexrelid = i.oid
-                       JOIN pg_class t ON t.oid = ix.indrelid
-                      WHERE i.relkind IN ('i', 'I')
-                        AND n.nspname = $1
-                        AND i.relname = $2`;
+  const ifExistsClause = optionalSqlClause(ifExists, 'IF EXISTS');
 
   if (concurrently) {
     // DROP INDEX CONCURRENTLY cannot run inside a transaction (PostgreSQL
@@ -119,34 +194,12 @@ async function runDrop(client: PostgreSQLClient, params: IndexOperationParams, s
     // could replace the index with another of the same name on a
     // different table. We mitigate by re-checking the OID after the drop
     // and reporting only what we actually removed.
-    const lookup = await client.executeQuery<IndexLookupRow>(lookupSql, [schema, name]);
+    const directRun: IndexDropQueryRunner = (sql, p) => client.executeQuery(sql, p);
+    const preCheck = await preCheckIndexDrop(directRun, schema, name, table, ifExists);
 
-    if (lookup.length === 0) {
-      if (ifExists) {
-        return toolSuccess({
-          operation: 'drop',
-          schema,
-          table,
-          name,
-          dropped: false,
-          message: `Index "${schema}"."${name}" does not exist; skipped (ifExists=true)`,
-        });
-      }
+    if (preCheck.kind === 'short-circuit') return preCheck.result;
 
-      return toolError(new Error(`Index "${schema}"."${name}" does not exist`));
-    }
-
-    const lookupRow = lookup[0];
-    const lookupOid = lookupRow?.oid;
-    const actualTable = lookupRow?.table_name;
-
-    if (table && actualTable !== table) {
-      return toolError(new Error(
-        `Index "${schema}"."${name}" belongs to table "${actualTable}", not "${table}". Re-issue the drop with the correct table, or omit \`table\` to skip the check.`,
-      ));
-    }
-
-    const ifExistsClause = optionalSqlClause(ifExists, 'IF EXISTS');
+    const { actualTable, lookupOid } = preCheck;
     const dropSql = `DROP INDEX CONCURRENTLY ${ifExistsClause} ${quoteQualified(schema, name)}`;
 
     await client.executeQuery<Record<string, unknown>>(dropSql);
@@ -177,33 +230,11 @@ async function runDrop(client: PostgreSQLClient, params: IndexOperationParams, s
   // Non-concurrent path: wrap lookup + drop in a single transaction so a
   // parallel session cannot swap the index between the two statements.
   return client.withTransaction(async (run) => {
-    const lookup = await run<IndexLookupRow>(lookupSql, [schema, name]);
+    const preCheck = await preCheckIndexDrop(run, schema, name, table, ifExists);
 
-    if (lookup.length === 0) {
-      if (ifExists) {
-        return toolSuccess({
-          operation: 'drop',
-          schema,
-          table,
-          name,
-          dropped: false,
-          message: `Index "${schema}"."${name}" does not exist; skipped (ifExists=true)`,
-        });
-      }
+    if (preCheck.kind === 'short-circuit') return preCheck.result;
 
-      return toolError(new Error(`Index "${schema}"."${name}" does not exist`));
-    }
-
-    const lookupRow = lookup[0];
-    const actualTable = lookupRow?.table_name;
-
-    if (table && actualTable !== table) {
-      return toolError(new Error(
-        `Index "${schema}"."${name}" belongs to table "${actualTable}", not "${table}". Re-issue the drop with the correct table, or omit \`table\` to skip the check.`,
-      ));
-    }
-
-    const ifExistsClause = optionalSqlClause(ifExists, 'IF EXISTS');
+    const { actualTable } = preCheck;
     const dropSql = `DROP INDEX ${ifExistsClause} ${quoteQualified(schema, name)}`;
 
     await run<Record<string, unknown>>(dropSql);
@@ -361,7 +392,7 @@ export function registerIndexOperationTool(server: McpServer, client: PostgreSQL
 
       if (guard) return guard;
 
-      const { operation, schema = 'public' } = params;
+      const { operation, schema = DEFAULT_SCHEMA } = params;
 
       // Defense-in-depth: PostgreSQL would reject CREATE/DROP INDEX with
       // error 25006 (read_only_sql_transaction) on a session opened with
@@ -381,6 +412,11 @@ export function registerIndexOperationTool(server: McpServer, client: PostgreSQL
             return await runDrop(client, params, schema);
           case 'list':
             return await runList(client, params, schema);
+          default:
+            // Defense-in-depth: zod-enum already constrains `operation` at
+            // schema parse, but a missing `default` would let an unknown
+            // value silently return undefined.
+            return toolError(new Error(`Unknown operation: ${String(operation)}`));
         }
       } catch (error) {
         return toolError(error);

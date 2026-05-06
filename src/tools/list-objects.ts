@@ -4,10 +4,10 @@ import type { PostgreSQLClient } from '../postgres-client.js';
 import { toolSuccess, toolError } from '../utils/tool-response.js';
 import { requireConnection } from '../utils/connection-guard.js';
 import { paginationLimitSchema, paginationOffsetSchema } from '../utils/pagination.js';
-import { DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT } from '../defaults.js';
+import { DEFAULT_PAGE_LIMIT, DEFAULT_SCHEMA, MAX_PAGE_LIMIT } from '../defaults.js';
 
 const listObjectsSchema = z.object({
-  schema: z.string().optional().default('public').describe('Schema name to list objects from'),
+  schema: z.string().optional().default(DEFAULT_SCHEMA).describe('Schema name to list objects from'),
   type: z.enum(['table', 'view', 'function', 'procedure', 'all']).optional().default('all').describe('Type of objects to list'),
   nameLike: z.string().optional().describe('Optional ILIKE pattern (use `%` for wildcards, `_` for single character) to filter object names server-side'),
   limit: paginationLimitSchema('objects'),
@@ -114,7 +114,7 @@ export function registerListObjectsTool(server: McpServer, client: PostgreSQLCli
         'List objects (tables, views, functions, procedures) in a PostgreSQL schema.',
         'Use for: browsing what is available in a schema; narrowing by `type` (`table` / `view` / `function` / `procedure` / `all`); filtering by name pattern via `nameLike` (an ILIKE pattern, e.g. `user_%`).',
         'Returns: `objects` ([{ name, type }]), `count`, pagination metadata (`limit`, `offset`, `hasMore`).',
-        `Limitations: aggregate functions are excluded; only \`prokind\` IN (\`f\`, \`p\`, \`w\`) are reported. Pagination defaults to ${DEFAULT_PAGE_LIMIT} rows (max ${MAX_PAGE_LIMIT}).`,
+        `Limitations: aggregate (\`a\`) and window (\`w\`) functions are excluded; only \`prokind\` IN (\`f\`, \`p\`) are reported. Pagination defaults to ${DEFAULT_PAGE_LIMIT} rows (max ${MAX_PAGE_LIMIT}).`,
       ].join(' '),
       inputSchema: listObjectsSchema.shape,
       annotations: {
@@ -129,7 +129,7 @@ export function registerListObjectsTool(server: McpServer, client: PostgreSQLCli
 
       if (guard) return guard;
 
-      const { schema = 'public', type = 'all', nameLike, limit, offset } = params;
+      const { schema = DEFAULT_SCHEMA, type = 'all', nameLike, limit, offset } = params;
 
       try {
         // Use placeholder $1 = schema, $2 = nameLike pattern (or null if not
@@ -139,7 +139,9 @@ export function registerListObjectsTool(server: McpServer, client: PostgreSQLCli
         const namePattern = nameLike ?? null;
         const baseQuery = buildBaseQuery(type);
         // 'all' uses three params already ($1 schema, $2 nameLike, $3
-        // per-branch LIMIT cap), so the outer LIMIT/OFFSET take $4/$5.
+        // per-branch cap = `limit + offset + 1` so each UNION ALL branch
+        // produces enough rows for the outer ORDER BY name LIMIT/OFFSET to
+        // pick its slice). The outer LIMIT/OFFSET are $4/$5.
         // Single-source variants use only $1/$2 inside `baseQuery`, so
         // the outer LIMIT/OFFSET are $3/$4.
         const query = type === 'all'

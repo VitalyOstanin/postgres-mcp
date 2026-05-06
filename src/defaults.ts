@@ -14,3 +14,8 @@ export const DEFAULT_AUTO_CONNECT = false;
 export const DEFAULT_PAGE_LIMIT = 100;
 export const MAX_PAGE_LIMIT = 1000;
 export const MIN_PAGE_LIMIT = 1;
+
+// Default schema for tools that accept an optional schema parameter
+// (index-operation, list-objects, show-object). Centralising here keeps Zod
+// `.default(...)` and the `schema = '...'` destructuring fallback in sync.
+export const DEFAULT_SCHEMA = 'public';

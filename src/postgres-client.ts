@@ -96,6 +96,15 @@ export class PostgreSQLClient {
         }
         this.connectionError = redacted;
         this.disconnectReason = 'pool connection error';
+
+        // Release the failed pool's TCP sockets and drop our reference so a
+        // subsequent connect() doesn't leak it by overwriting `this.pool`.
+        // Only clear `this.pool` if it still points to *this* pool — a
+        // newer connect may already have installed a fresh one.
+        if (this.pool === pool) {
+          this.pool = null;
+        }
+        void pool.end().catch(() => { /* shutdown errors swallowed */ });
       }
     });
 
@@ -215,6 +224,7 @@ export class PostgreSQLClient {
   async withTransaction<T>(operation: (run: <R>(query: string, params?: unknown[]) => Promise<R[]>) => Promise<T>): Promise<T> {
     const pool = this.ensureConnected();
     const client = await pool.connect();
+    let releaseError: Error | undefined;
 
     try {
       await client.query('BEGIN');
@@ -233,10 +243,14 @@ export class PostgreSQLClient {
         return value;
       } catch (error) {
         await client.query('ROLLBACK').catch(() => { /* prefer the original error */ });
+        releaseError = error instanceof Error ? error : new Error(String(error));
         throw error;
       }
     } finally {
-      client.release();
+      // Pass the error to release() so pg destroys the client instead of
+      // returning it to the pool — after a failed query the connection's
+      // protocol state may be inconsistent and reuse can break next callers.
+      client.release(releaseError);
     }
   }
 
@@ -259,6 +273,7 @@ export class PostgreSQLClient {
     const client = await pool.connect();
     const queryStream = new QueryStream(query, params ?? []);
     const stream = client.query(queryStream);
+    let releaseError: Error | undefined;
 
     try {
       // Same as executeQuery: readonly enforcement is at the session level.
@@ -267,9 +282,13 @@ export class PostgreSQLClient {
       }
     } catch (error) {
       stream.destroy();
+      releaseError = error instanceof Error ? error : new Error(String(error));
       throw error;
     } finally {
-      client.release();
+      // After stream.destroy() the connection's protocol state may be
+      // mid-response; pass the error to release() so pg destroys the client
+      // instead of returning a half-baked connection to the pool.
+      client.release(releaseError);
     }
   }
 

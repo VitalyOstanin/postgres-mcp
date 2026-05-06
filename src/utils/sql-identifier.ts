@@ -1,5 +1,17 @@
 // PostgreSQL identifier (NAMEDATALEN-1) byte limit.
 const PG_IDENTIFIER_MAX_BYTES = 63;
+// Maximum length of a user-supplied value to embed verbatim in an error
+// message. Keeps a kilobyte of LLM-generated nonsense from flooding the
+// tool-response payload.
+const ERROR_VALUE_PREVIEW = 80;
+
+function truncateForError(value: string): string {
+  if (value.length <= ERROR_VALUE_PREVIEW) {
+    return value;
+  }
+
+  return `${value.slice(0, ERROR_VALUE_PREVIEW)}…`;
+}
 
 /**
  * Quote a PostgreSQL identifier (table, column, schema, index name).
@@ -19,7 +31,7 @@ export function quoteIdent(name: string): string {
   }
 
   if (Buffer.byteLength(name, 'utf8') > PG_IDENTIFIER_MAX_BYTES) {
-    throw new Error(`Identifier exceeds ${PG_IDENTIFIER_MAX_BYTES} bytes: ${name}`);
+    throw new Error(`Identifier exceeds ${PG_IDENTIFIER_MAX_BYTES} bytes: ${truncateForError(name)}`);
   }
 
   return `"${name.replace(/"/g, '""')}"`;

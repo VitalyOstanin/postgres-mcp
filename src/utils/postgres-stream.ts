@@ -1,9 +1,30 @@
 import { Transform, type TransformCallback } from 'node:stream';
 import { once } from 'node:events';
-import { createWriteStream } from 'node:fs';
+import { createWriteStream, type WriteStream } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { generateTempFilePath } from './streaming.js';
+
+/**
+ * Open a write stream with the standard project policy: ensure the directory
+ * exists, open the file with 'wx' so concurrent calls targeting the same path
+ * fail with EEXIST instead of silently clobbering, and expose a single Promise
+ * that resolves on 'finish' or rejects on 'error'. Callers attach additional
+ * error sources by destroying the returned stream with an explicit error.
+ */
+async function openSafeWriteStream(filePath: string): Promise<{ writeStream: WriteStream; finished: Promise<void> }> {
+  const dir = dirname(filePath);
+
+  await mkdir(dir, { recursive: true });
+
+  const writeStream = createWriteStream(filePath, { flags: 'wx' });
+  const finished = new Promise<void>((resolve, reject) => {
+    writeStream.on('finish', () => { resolve(); });
+    writeStream.on('error', (error) => { reject(error); });
+  });
+
+  return { writeStream, finished };
+}
 
 /**
  * Transform stream to convert PostgreSQL query results to JSON Lines format
@@ -73,21 +94,12 @@ export async function streamPostgresQueryToFile(
   filePath: string,
   format: 'jsonl' | 'json' = 'jsonl',
 ): Promise<{ filePath: string; count: number }> {
-  const dir = dirname(filePath);
-
-  await mkdir(dir, { recursive: true });
-
+  const { writeStream, finished } = await openSafeWriteStream(filePath);
   const transform = format === 'jsonl' ? new JsonLinesTransform() : new JsonArrayTransform();
-  // Open with 'wx' so concurrent tool calls targeting the same path get an
-  // EEXIST error instead of silently clobbering each other's exports. Callers
-  // are expected to pick a unique filePath (timestamp, uuid) per invocation.
-  const writeStream = createWriteStream(filePath, { flags: 'wx' });
-  const streamCompletePromise = new Promise<void>((resolve, reject) => {
-    writeStream.on('finish', () => { resolve(); });
-    writeStream.on('error', (error) => { reject(error); });
-    transform.on('error', (error) => { reject(error); });
-  });
 
+  // Route transform errors through the writeStream so the unified 'error'
+  // listener inside finished/openSafeWriteStream rejects the promise.
+  transform.on('error', (error) => { writeStream.destroy(error); });
   transform.pipe(writeStream);
 
   let count = 0;
@@ -101,15 +113,15 @@ export async function streamPostgresQueryToFile(
   try {
     await streamQueryFunction(processRow);
     transform.end();
-    await streamCompletePromise;
+    await finished;
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error));
 
     transform.destroy(err);
     writeStream.destroy(err);
-    // Surface the rejection from streamCompletePromise but prefer the
-    // original error if both fire.
-    await streamCompletePromise.catch(() => { /* already handled */ });
+    // Surface the rejection from finished but prefer the original error if
+    // both fire.
+    await finished.catch(() => { /* already handled */ });
     throw err;
   }
 
@@ -130,16 +142,7 @@ export async function writeArrayToFile(
   filePath: string,
   format: 'jsonl' | 'json' = 'jsonl',
 ): Promise<{ filePath: string; count: number }> {
-  const dir = dirname(filePath);
-
-  await mkdir(dir, { recursive: true });
-
-  // 'wx' — see streamPostgresQueryToFile for rationale.
-  const writeStream = createWriteStream(filePath, { flags: 'wx' });
-  const finished = new Promise<void>((resolve, reject) => {
-    writeStream.on('finish', () => { resolve(); });
-    writeStream.on('error', (error) => { reject(error); });
-  });
+  const { writeStream, finished } = await openSafeWriteStream(filePath);
   const writeChunk = async (chunk: string): Promise<void> => {
     if (!writeStream.write(chunk)) {
       await once(writeStream, 'drain');
