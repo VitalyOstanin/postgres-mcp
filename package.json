@@ -47,7 +47,8 @@
     "dist/**/*.d.ts",
     "dist/**/*.json",
     "README.md",
-    "README-ru.md"
+    "README-ru.md",
+    "LICENSE"
   ],
   "publishConfig": {
     "access": "public"
