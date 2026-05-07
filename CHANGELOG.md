@@ -7,14 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Table of Contents
 
-- [Unreleased](#unreleased)
+- [0.5.1](#051---2026-05-07)
 - [0.5.0](#050---2026-05-07)
 - [0.4.0](#040---2026-05-07)
 - [0.3.0](#030---2026-05-06)
 - [0.2.0](#020---2026-05-06)
 - [0.1.0](#010)
 
-## Unreleased
+## [0.5.1] - 2026-05-07
 
 ### Added
 - `LICENSE` (MIT) file in repository root and added to the `files` allow-list so it ships in the published tarball.

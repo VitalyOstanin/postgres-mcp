@@ -1,6 +1,6 @@
 {
   "name": "@vitalyostanin/postgres-mcp",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "postbuild": "chmod +x dist/index.js && cp package.json dist/package.json",
