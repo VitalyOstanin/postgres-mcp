@@ -3,6 +3,7 @@
 Also available in Russian: [README-ru.md](README-ru.md)
 
 [![CI](https://github.com/VitalyOstanin/postgres-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/VitalyOstanin/postgres-mcp/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/VitalyOstanin/postgres-mcp/graph/badge.svg?token=A0UM8E2OMF)](https://codecov.io/gh/VitalyOstanin/postgres-mcp)
 [![npm version](https://img.shields.io/npm/v/@vitalyostanin/postgres-mcp.svg)](https://www.npmjs.com/package/@vitalyostanin/postgres-mcp)
 
 **Note**: This project is designed for my personal needs. I do not plan to expand its functionality with features I don't use or cannot verify. You are free to submit suggestions and pull requests, but I make no guarantee that everything will be accepted.

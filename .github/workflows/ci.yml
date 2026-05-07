@@ -22,6 +22,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
+    # `id-token: write` is required for the Codecov OIDC upload below.
+    # `contents: read` repeats the workflow-level default explicitly, since
+    # adding any job-level `permissions:` block resets all unspecified scopes
+    # to none.
+    permissions:
+      contents: read
+      id-token: write
+
     strategy:
       fail-fast: false
       matrix:
@@ -59,11 +67,12 @@ jobs:
       # codecov/codecov-action pinned to v6.0.0
       uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2
       with:
+        # OIDC removes the need for a long-lived CODECOV_TOKEN secret —
+        # the action exchanges a short-lived GitHub-issued JWT for an
+        # upload credential, which Codecov verifies by repository claim.
+        use_oidc: true
         files: ./coverage/lcov.info
         flags: unit
-        # Token is optional for public repos but Codecov v6 strongly
-        # recommends it. Configure CODECOV_TOKEN under Settings → Secrets.
-        token: ${{ secrets.CODECOV_TOKEN }}
         # Don't fail the build on Codecov outages — coverage drift is
         # signal, not a release blocker.
         fail_ci_if_error: false

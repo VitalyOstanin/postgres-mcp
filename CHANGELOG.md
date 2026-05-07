@@ -7,12 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Table of Contents
 
+- [0.5.2](#052---2026-05-07)
 - [0.5.1](#051---2026-05-07)
 - [0.5.0](#050---2026-05-07)
 - [0.4.0](#040---2026-05-07)
 - [0.3.0](#030---2026-05-06)
 - [0.2.0](#020---2026-05-06)
 - [0.1.0](#010)
+
+## [0.5.2] - 2026-05-07
+
+### Changed
+- CI: switched the Codecov upload from `CODECOV_TOKEN` to OIDC (`use_oidc: true` on `codecov/codecov-action@v6.0.0`). The `build-and-test` job now requests `id-token: write` so the action exchanges a short-lived GitHub-issued JWT for an upload credential, removing the need to store a long-lived `CODECOV_TOKEN` secret in the repository.
+
+### Added
+- README: Codecov coverage badge in [README.md](README.md) and [README-ru.md](README-ru.md), linking to <https://codecov.io/gh/VitalyOstanin/postgres-mcp>.
 
 ## [0.5.1] - 2026-05-07
 
