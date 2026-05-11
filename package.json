@@ -68,7 +68,7 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/luxon": "^3.7.1",
-    "@types/node": "^25.6.0",
+    "@types/node": "^25.6.2",
     "@types/pg": "^8.20.0",
     "@types/pg-cursor": "^2.7.2",
     "@types/yargs": "^17.0.34",
