@@ -60,7 +60,7 @@
     "@modelcontextprotocol/sdk": "^1.29.0",
     "luxon": "^3.7.2",
     "pg": "^8.20.0",
-    "pg-query-stream": "^4.14.0",
+    "pg-query-stream": "^4.15.0",
     "pgsql-parser": "^17.9.15",
     "yargs": "^18.0.0",
     "zod": "^4.4.3"
