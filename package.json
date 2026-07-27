@@ -62,7 +62,7 @@
     "pg": "^8.22.0",
     "pg-query-stream": "^4.16.0",
     "pgsql-parser": "^17.9.16",
-    "yargs": "^18.0.0",
+    "yargs": "^18.1.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
