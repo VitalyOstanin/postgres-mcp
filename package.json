@@ -59,7 +59,7 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
     "luxon": "^3.7.2",
-    "pg": "^8.22.0",
+    "pg": "^8.23.0",
     "pg-query-stream": "^4.16.0",
     "pgsql-parser": "^17.9.16",
     "yargs": "^18.0.0",
@@ -69,7 +69,7 @@
     "@eslint/js": "^10.0.1",
     "@types/luxon": "^3.7.2",
     "@types/node": "^26.1.1",
-    "@types/pg": "^8.20.0",
+    "@types/pg": "^8.21.0",
     "@types/pg-cursor": "^2.7.2",
     "@types/yargs": "^17.0.35",
     "@vitest/coverage-v8": "^4.1.10",
