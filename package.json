@@ -63,7 +63,7 @@
     "pg-query-stream": "^4.16.0",
     "pgsql-parser": "^17.9.16",
     "yargs": "^18.0.0",
-    "zod": "^4.4.3"
+    "zod": "^4.5.4"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
