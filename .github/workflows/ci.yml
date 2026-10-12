@@ -42,7 +42,7 @@ jobs:
 
     - name: Setup Node.js ${{ matrix.node-version }}
       # actions/setup-node pinned to v6.4.0
-      uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+      uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
       with:
         node-version: ${{ matrix.node-version }}
         cache: 'npm'
@@ -100,7 +100,7 @@ jobs:
 
     - name: Setup Node.js
       # actions/setup-node pinned to v6.4.0
-      uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+      uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
       with:
         node-version: 22.x
         cache: 'npm'
@@ -152,7 +152,7 @@ jobs:
 
     - name: Setup Node.js ${{ matrix.node-version }}
       # actions/setup-node pinned to v6.4.0
-      uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+      uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
       with:
         node-version: ${{ matrix.node-version }}
         cache: 'npm'
